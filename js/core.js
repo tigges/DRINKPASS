@@ -100,7 +100,73 @@ export function periodStats(sorted, a, b, isNight) {
   return st;
 }
 
-export function csvCell(v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+export var SCHEMA = 2;
+export var DEFAULT_SETTINGS = { unit: 'ml', nightStart: '22:00', nightEnd: '06:00', askSize: true, showUrgency: true, showKind: true, range: 1, dotScale: 'same', trackSolid: false, showBristol: false, compare: false };
+var SIZE_LABELS = ['small', 'medium', 'large', 'exact'];
+var TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+var EARLIEST = Date.UTC(2000, 0, 1);
+
+function inList(list, v) { for (var i = 0; i < list.length; i++) if (list[i][0] === v) return true; return false; }
+/** A clean copy of an entry with only known, well-typed fields, or null when it can't be used. */
+export function sanitizeEntry(x, now) {
+  if (!x || typeof x !== 'object') return null;
+  var limit = (now === undefined ? Date.now() : now) + DAY;
+  if (typeof x.id !== 'string' || !x.id || x.id.length > 64) return null;
+  if (VALID_TYPES.indexOf(x.type) < 0) return null;
+  if (typeof x.t !== 'number' || !isFinite(x.t) || x.t < EARLIEST || x.t > limit) return null;
+  var e = { id: x.id, type: x.type, t: Math.round(x.t) };
+  if ((x.type === 'drink' || x.type === 'pass') && x.size && typeof x.size === 'object') {
+    var ml = +x.size.ml;
+    if (isFinite(ml) && ml > 0 && ml <= 5000) e.size = { label: SIZE_LABELS.indexOf(x.size.label) > -1 ? x.size.label : 'exact', ml: ml };
+  }
+  if (x.type === 'drink' && inList(KINDS, x.kind)) e.kind = x.kind;
+  if ((x.type === 'pass' || x.type === 'solid') && inList(URG, x.urgency)) e.urgency = x.urgency;
+  if (x.type === 'solid' && Number.isInteger(x.bristol) && x.bristol >= 1 && x.bristol <= 7) e.bristol = x.bristol;
+  if (typeof x.note === 'string' && x.note.trim() && x.type !== 'bed' && x.type !== 'wake') e.note = x.note.trim().slice(0, 200);
+  if (x.type === 'pass' && typeof x.withSolid === 'string') e.withSolid = x.withSolid;
+  if (x.type === 'solid' && typeof x.withPass === 'string') e.withPass = x.withPass;
+  return e;
+}
+/** Known settings with the right types; anything missing or malformed falls back to `base`. */
+export function sanitizeSettings(q, base) {
+  var out = {}, b = base || DEFAULT_SETTINGS;
+  Object.keys(DEFAULT_SETTINGS).forEach(function (k) { out[k] = b[k] !== undefined ? b[k] : DEFAULT_SETTINGS[k]; });
+  if (!q || typeof q !== 'object') return out;
+  if (q.unit === 'ml' || q.unit === 'oz') out.unit = q.unit;
+  if (TIME_RE.test(q.nightStart)) out.nightStart = q.nightStart;
+  if (TIME_RE.test(q.nightEnd)) out.nightEnd = q.nightEnd;
+  ['askSize', 'showUrgency', 'showKind', 'trackSolid', 'showBristol', 'compare'].forEach(function (k) { if (typeof q[k] === 'boolean') out[k] = q[k]; });
+  if ([1, 3, 7, 14, 30].indexOf(+q.range) > -1) out.range = +q.range;
+  if (q.dotScale === 'same' || q.dotScale === 'amount') out.dotScale = q.dotScale;
+  return out;
+}
+/**
+ * Brings a stored or restored log up to the current schema.
+ * Schema 1 had no stool tracking; schema 2 added `solid` entries and pass/solid links.
+ * Returns the cleaned entries and how many had to be dropped.
+ */
+export function migrateLog(list, fromSchema, now) {
+  var out = [], dropped = 0, seen = {};
+  (Array.isArray(list) ? list : []).forEach(function (x) {
+    var e = sanitizeEntry(x, now);
+    if (!e || seen[e.id]) { dropped++; return; }
+    seen[e.id] = 1; out.push(e);
+  });
+  var ids = {}; out.forEach(function (e) { ids[e.id] = e; });
+  out.forEach(function (e) {
+    if (e.withSolid && !(ids[e.withSolid] && ids[e.withSolid].type === 'solid')) delete e.withSolid;
+    if (e.withPass && !(ids[e.withPass] && ids[e.withPass].type === 'pass')) delete e.withPass;
+  });
+  return { log: out, dropped: dropped, schema: SCHEMA, from: fromSchema || 1 };
+}
+
+/** Spreadsheet apps run cells starting with these characters as formulas. */
+var FORMULA_RE = /^[=+\-@\t\r]/;
+export function csvCell(v) {
+  v = String(v == null ? '' : v);
+  if (FORMULA_RE.test(v)) v = "'" + v;
+  return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
 export function toCsv(entries, isNight) {
   var lines = ['date,time,type,drink_type,size,ml,night,urgency,bristol,note'];
   entries.forEach(function (x) {

@@ -1,37 +1,63 @@
 import {
-  OZ, H, DAY, VALID_TYPES, PRESETS, URG, KINDS, KINDS_SHORT, NAMES, BRISTOL,
+  OZ, H, DAY, PRESETS, URG, KINDS, KINDS_SHORT, NAMES, BRISTOL,
   isSleep, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime, fmtDur, agoText, toLocalInput,
-  sortEntries, sleepModel, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
+  sortEntries, sleepModel, sanitizeSettings, migrateLog, DEFAULT_SETTINGS, SCHEMA, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
   fmtVol as fmtVolIn
 } from './core.js';
 
-var KEY = 'drink-pass-log-v1', SKEY = 'drink-pass-settings-v1', BKEY = 'drink-pass-backup-v1', TKEY = 'drink-pass-trash-v1';
+var KEY = 'drink-pass-log-v1', SKEY = 'drink-pass-settings-v1', BKEY = 'drink-pass-backup-v1', TKEY = 'drink-pass-trash-v1', MKEY = 'drink-pass-schema';
 var NS = 'http://www.w3.org/2000/svg';
-var log = [], settings = { unit: 'ml', nightStart: '22:00', nightEnd: '06:00', askSize: true, showUrgency: true, showKind: true, range: 1, dotScale: 'same', trackSolid: false, showBristol: false, compare: false }, bk = { last: 0, snooze: 0, done: 0 }, trash = [], lastTap = {}, barRestore = null, barStash = null;
+var log = [], settings = sanitizeSettings(null), bk = { last: 0, snooze: 0, done: 0 }, trash = [], lastTap = {}, barRestore = null, barStash = null;
 var HOSTED = !(window.claude && window.claude.use);
 function isStandalone() { try { return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; } catch (e) { return false; } }
 var idb = null, recoveryPending = null, snapCache = [], mirrorTimer = null, lastSnapAt = 0, persistTried = false, pendingRestore = null;
-var storageOk = true, whenMode = 'now', dayOffset = 0, reportDays = 1, rangeDays = 1;
+var loadProblem = false, storageOk = true, whenMode = 'now', dayOffset = 0, reportDays = 1, rangeDays = 1;
 var sheetId = null, barId = null, barTimer = null, sleep = { periods: [], markers: [], last: null }, dlCap = null;
 var $ = function (id) { return document.getElementById(id); };
 var each = function (sel, fn) { Array.prototype.forEach.call(document.querySelectorAll(sel), fn); };
 
 function testStorage() { try { localStorage.setItem('dp-test', '1'); localStorage.removeItem('dp-test'); storageOk = true; } catch (e) { storageOk = false; } }
+function readJson(key) {
+  var raw = localStorage.getItem(key);
+  if (raw === null) return { missing: true };
+  try { return { value: JSON.parse(raw), raw: raw }; } catch (e) { return { bad: true, raw: raw }; }
+}
+// Keeps the unreadable original so a later save can't overwrite the only copy.
+function quarantine(key, raw) {
+  try { localStorage.setItem(key + '-unreadable-' + Date.now(), raw); } catch (e) {}
+  loadProblem = true;
+}
+function loadLog() {
+  var r = readJson(KEY);
+  if (r.bad) { quarantine(KEY, r.raw); log = []; return; }
+  if (r.missing || !Array.isArray(r.value)) { log = []; return; }
+  var m = migrateLog(r.value, +localStorage.getItem(MKEY) || 1);
+  log = m.log;
+  if (m.dropped) quarantine(KEY, r.raw);
+  if (m.from !== SCHEMA) try { localStorage.setItem(MKEY, String(SCHEMA)); } catch (e) {}
+}
+function loadSettings() {
+  var r = readJson(SKEY);
+  if (r.bad) quarantine(SKEY, r.raw);
+  settings = sanitizeSettings(r.value, DEFAULT_SETTINGS);
+  rangeDays = settings.range; reportDays = rangeDays > 7 ? 7 : rangeDays;
+}
 function load() {
+  try { loadLog(); } catch (e) { log = []; }
+  try { loadSettings(); } catch (e) {}
   try {
-    var raw = localStorage.getItem(KEY); if (raw) { var p = JSON.parse(raw); if (Array.isArray(p)) log = p; }
-    var s = localStorage.getItem(SKEY); if (s) { var q = JSON.parse(s); if (q && typeof q === 'object') for (var k in settings) if (q[k] !== undefined && q[k] !== null && q[k] !== '') settings[k] = q[k]; }
-    rangeDays = [1, 3, 7, 14, 30].indexOf(+settings.range) > -1 ? +settings.range : 1; reportDays = rangeDays > 7 ? 7 : rangeDays;
-    var b = localStorage.getItem(BKEY);
-    if (b) { var bb = JSON.parse(b); if (bb && typeof bb === 'object') bk = { last: +bb.last || 0, snooze: +bb.snooze || 0, done: +bb.done || 0 }; }
+    var b = readJson(BKEY);
+    if (b.value && typeof b.value === 'object') bk = { last: +b.value.last || 0, snooze: +b.value.snooze || 0, done: +b.value.done || 0 };
     else { bk.last = Date.now(); saveBk(); }
-    var tr = localStorage.getItem(TKEY);
-    if (tr) { var tt = JSON.parse(tr); if (Array.isArray(tt)) trash = tt.filter(function (q) { return q && q.entry && Date.now() - q.at < 30 * DAY; }); }
+  } catch (e) {}
+  try {
+    var tr = readJson(TKEY);
+    if (Array.isArray(tr.value)) trash = tr.value.filter(function (q) { return q && q.entry && Date.now() - q.at < 30 * DAY; });
   } catch (e) {}
 }
 function saveBk() { try { localStorage.setItem(BKEY, JSON.stringify(bk)); } catch (e) {} }
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(log)); localStorage.setItem(SKEY, JSON.stringify(settings)); } catch (e) { storageOk = false; }
+  try { localStorage.setItem(KEY, JSON.stringify(log)); localStorage.setItem(SKEY, JSON.stringify(settings)); localStorage.setItem(MKEY, String(SCHEMA)); storageOk = true; } catch (e) { storageOk = false; }
   $('storageWarn').hidden = storageOk;
   scheduleMirror();
 }
@@ -114,15 +140,16 @@ function addEntry(type, ev) {
   if (navigator.vibrate) { try { navigator.vibrate(15); } catch (e) {} }
 }
 function remove(id, toTrash) {
-  var gone = find(id);
-  if (toTrash && gone) { trash.unshift({ entry: gone, at: Date.now() }); trash = trash.slice(0, 20); saveTrash(); }
-  log = log.filter(function (x) { return x.id !== id; });
-  if (sheetId === id) { sheetId = null; hideSheet(); }
-  if (barId === id) hideBar();
+  var gone = find(id), mate = partner(gone);
+  if (toTrash && gone) { trash.unshift(mate ? { entry: gone, partner: mate, at: Date.now() } : { entry: gone, at: Date.now() }); trash = trash.slice(0, 20); saveTrash(); }
+  log = log.filter(function (x) { return x.id !== id && !(mate && x.id === mate.id); });
+  if (sheetId === id || (mate && sheetId === mate.id)) { sheetId = null; hideSheet(); }
+  if (barId === id || (mate && barId === mate.id)) hideBar();
   save(); render();
 }
-function restoreEntry(entry) {
+function restoreEntry(entry, mate) {
   if (!find(entry.id)) log.push(entry);
+  if (mate && !find(mate.id)) log.push(mate);
   trash = trash.filter(function (q) { return q.entry.id !== entry.id; }); saveTrash();
   save(); render(); renderTrash();
 }
@@ -130,8 +157,8 @@ function renderTrash() {
   var box = $('trashList'); box.textContent = '';
   if (!trash.length) { box.appendChild(el('p', 'hint', 'Nothing removed recently. Removed entries stay here for 30 days.')); return; }
   trash.slice(0, 10).forEach(function (q) {
-    var r = el('div', 'trashrow'); r.appendChild(el('span', '', NAMES[q.entry.type] + ' · ' + fmtWhen(q.entry.t)));
-    var b = el('button', 'btn', 'Restore'); b.type = 'button'; b.addEventListener('click', function () { restoreEntry(q.entry); }); r.appendChild(b); box.appendChild(r);
+    var r = el('div', 'trashrow'); r.appendChild(el('span', '', (q.partner ? 'Pass and solid' : NAMES[q.entry.type]) + ' · ' + fmtWhen(q.entry.t)));
+    var b = el('button', 'btn', 'Restore'); b.type = 'button'; b.addEventListener('click', function () { restoreEntry(q.entry, q.partner); }); r.appendChild(b); box.appendChild(r);
   });
 }
 
@@ -163,7 +190,6 @@ function detailParts(x, g) {
   return p;
 }
 
-function measureSheet() {}
 function buildOptions(box, list, current, onPick) {
   box.textContent = '';
   list.forEach(function (u) {
@@ -223,9 +249,8 @@ function openSheet(entry, keepTime) {
   }
   $('sheetRemove').hidden = false;
   $('sheet').hidden = false;
-  measureSheet();
 }
-function hideSheet() { $('sheet').hidden = true; measureSheet(); }
+function hideSheet() { $('sheet').hidden = true; }
 function closeSheet() { sheetId = null; hideSheet(); render(); }
 function setSize(label, ml) {
   var e = find(sheetId); if (!e) return;
@@ -350,9 +375,9 @@ function showBar(entry, rebuilt) {
   checkBar(entry, true);
 }
 
-function showRemovedBar(e) {
-  barId = null; barRestore = e; $('barRows').textContent = '';
-  $('barMsg').textContent = 'Removed · ' + NAMES[e.type] + ' at ' + fmtTime(e.t); $('barMore').hidden = true;
+function showRemovedBar(e, mate) {
+  barId = null; barRestore = { entry: e, partner: mate }; $('barRows').textContent = '';
+  $('barMsg').textContent = 'Removed · ' + (mate ? 'Pass and solid' : NAMES[e.type]) + ' at ' + fmtTime(e.t); $('barMore').hidden = true;
   $('bar').hidden = false; armBar(6000);
 }
 function sum(a) { var t = 0, c = 0; a.forEach(function (x) { if (x.size) { t += x.size.ml; c++; } }); return [t, c]; }
@@ -752,25 +777,25 @@ $('pickTime').addEventListener('change', function () { $('whenText').textContent
 $('prev').addEventListener('click', function () { dayOffset -= 1; renderList(); });
 $('next').addEventListener('click', function () { if (dayOffset < 0) { dayOffset += 1; renderList(); } });
 $('sheetSkip').addEventListener('click', closeSheet);
-$('barUndo').addEventListener('click', function () { if (barRestore) { var re = barRestore; hideBar(); restoreEntry(re); } else if (barId) { var ue = find(barId), up = partner(ue); if (up) log = log.filter(function (x) { return x.id !== up.id; }); remove(barId); } });
+$('barUndo').addEventListener('click', function () { if (barRestore) { var re = barRestore; hideBar(); restoreEntry(re.entry, re.partner); } else if (barId) remove(barId); });
 $('barMore').addEventListener('click', function () { var e = find(barId); if (e) openSheet(e); });
 var swipeY = null;
 $('bar').addEventListener('pointerdown', function (e) { swipeY = e.clientY; if (barId && rowsAsked(find(barId) || {}).length) armBar(10000); });
 $('bar').addEventListener('pointerup', function (e) { if (swipeY !== null && swipeY - e.clientY > 30) hideBar(); swipeY = null; });
 document.addEventListener('pointerdown', function (e) { if ((barId || barRestore) && !$('bar').contains(e.target)) hideBar(); });
-$('sheetRemove').addEventListener('click', function () { if (!sheetId) return; var re = find(sheetId); remove(sheetId, true); if (re) showRemovedBar(re); });
-$('exactToggle').addEventListener('click', function () { $('exactRow').hidden = false; $('exactInput').focus(); measureSheet(); });
+$('sheetRemove').addEventListener('click', function () { if (!sheetId) return; var re = find(sheetId), rm = partner(re); remove(sheetId, true); if (re) showRemovedBar(re, rm); });
+$('exactToggle').addEventListener('click', function () { $('exactRow').hidden = false; $('exactInput').focus(); });
 $('exactSave').addEventListener('click', function () {
   var v = parseFloat($('exactInput').value);
   if (!(v > 0)) { $('exactInput').focus(); return; }
   setSize('exact', settings.unit === 'oz' ? v * OZ : v);
 });
-$('noteToggle').addEventListener('click', function () { $('noteRow').hidden = false; $('noteInput').focus(); measureSheet(); });
+$('noteToggle').addEventListener('click', function () { $('noteRow').hidden = false; $('noteInput').focus(); });
 $('noteInput').addEventListener('input', function () {
   var e = find(sheetId); if (!e) return;
   var v = this.value.trim(); if (v) e.note = v; else delete e.note; save();
 });
-$('timeToggle').addEventListener('click', function () { $('timeRow').hidden = false; $('timeInput').focus(); measureSheet(); });
+$('timeToggle').addEventListener('click', function () { $('timeRow').hidden = false; $('timeInput').focus(); });
 $('timeInput').addEventListener('change', function () {
   var e = find(sheetId); if (!e || !this.value) return;
   var t = new Date(this.value).getTime();
@@ -834,7 +859,6 @@ $('copyBackup').addEventListener('click', function () { copyText(backupText(), $
 $('dlBackup').addEventListener('click', function () { saveFile('drink-pass-backup-' + stamp() + '.json', backupText(), $('backupMsg'), markBackup); });
 
 // ---------- safer storage: automatic copies, recovery, checked restore ----------
-var SETTING_KEYS = ['unit', 'nightStart', 'nightEnd', 'askSize', 'showUrgency', 'showKind', 'range', 'dotScale', 'trackSolid', 'showBristol', 'compare'];
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function idbOpen(cb) {
   try {
@@ -902,7 +926,6 @@ $('recoverNow').addEventListener('click', function () {
   maybeSnapshot(true, 'Before recovery').then(function () {
     var have = {}; log.forEach(function (x) { have[x.id] = 1; });
     rp.entries.forEach(function (x) { if (!have[x.id]) log.push(x); });
-    if (!log.length || rp.settings) { /* keep current settings */ }
     save(); render(); $('recover').hidden = true; mirrorNow(); backupMsgFlash('Restored ' + rp.entries.length + ' entries');
   });
 });
@@ -944,10 +967,8 @@ function startRestore(text) {
   var d, msg = $('backupMsg');
   try { d = JSON.parse(text); if (!d || !Array.isArray(d.log)) throw new Error('bad'); } catch (e) { msg.textContent = 'That doesn’t look like a backup.'; setTimeout(function () { msg.textContent = ''; }, 3500); return; }
   var have = {}; log.forEach(function (x) { have[x.id] = 1; });
-  var fresh = [], dup = 0, bad = 0;
-  d.log.forEach(function (x) {
-    if (x && x.id && VALID_TYPES.indexOf(x.type) > -1 && typeof x.t === 'number') { if (have[x.id]) dup++; else fresh.push(x); } else bad++;
-  });
+  var m = migrateLog(d.log, +d.schema || 1), fresh = [], dup = 0, bad = m.dropped;
+  m.log.forEach(function (x) { if (have[x.id]) dup++; else fresh.push(x); });
   pendingRestore = { fresh: fresh, settings: (d.settings && typeof d.settings === 'object') ? d.settings : null };
   var line = 'Found ' + d.log.length + ' entries' + (d.exportedAt ? ', exported ' + new Date(d.exportedAt).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : '') + '. ' + fresh.length + ' new, ' + dup + ' already here' + (bad ? ', ' + bad + ' skipped' : '') + '.';
   $('restorePrevText').textContent = line;
@@ -968,14 +989,26 @@ $('restoreGo').addEventListener('click', function () {
   var pr = pendingRestore; pendingRestore = null;
   maybeSnapshot(true, 'Before restore').then(function () {
     pr.fresh.forEach(function (x) { log.push(x); });
-    if (pr.settings && $('restoreSettings').checked) SETTING_KEYS.forEach(function (k) { if (pr.settings[k] !== undefined && pr.settings[k] !== null) settings[k] = pr.settings[k]; });
-    rangeDays = [1, 3, 7, 14, 30].indexOf(+settings.range) > -1 ? +settings.range : 1; reportDays = rangeDays > 7 ? 7 : rangeDays;
+    if (pr.settings && $('restoreSettings').checked) settings = sanitizeSettings(pr.settings, settings);
+    rangeDays = settings.range; reportDays = rangeDays > 7 ? 7 : rangeDays;
     save(); render(); syncSettings(); $('restoreBox').value = ''; $('restorePrev').hidden = true;
     backupMsgFlash(pr.fresh.length + ' ' + (pr.fresh.length === 1 ? 'entry' : 'entries') + ' added');
   });
 });
+// Another tab saved: pick up its entries instead of overwriting them on our next save.
+window.addEventListener('storage', function (e) {
+  if (e.storageArea !== localStorage) return;
+  var all = e.key === null;
+  if (all || e.key === KEY) loadLog();
+  if (all || e.key === SKEY) { loadSettings(); syncSettings(); }
+  if (all || e.key === TKEY) { try { var tr = readJson(TKEY); trash = Array.isArray(tr.value) ? tr.value : []; } catch (er) {} renderTrash(); }
+  if (all || e.key === BKEY) { try { var b = readJson(BKEY); if (b.value) bk = { last: +b.value.last || 0, snooze: +b.value.snooze || 0, done: +b.value.done || 0 }; } catch (er) {} backupStatus(); }
+  if (sheetId && !find(sheetId)) { sheetId = null; hideSheet(); }
+  if (barId && !find(barId)) hideBar();
+  $('loadWarn').hidden = !loadProblem;
+  render();
+});
 document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') mirrorNow(); });
-window.addEventListener('resize', measureSheet);
 
 function syncSettings() {
   each('[data-unit]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-unit') === settings.unit ? 'true' : 'false'); });
@@ -985,7 +1018,7 @@ function syncSettings() {
   backupStatus(); renderTrash(); storeStatus(); renderSnaps();
 }
 
-testStorage(); load(); $('storageWarn').hidden = storageOk; syncSettings(); render();
+testStorage(); load(); $('storageWarn').hidden = storageOk; $('loadWarn').hidden = !loadProblem; syncSettings(); render();
 idbOpen(function (ok) { if (ok) detectLoss(); else storeStatus(); });
 try {
   if (window.ResizeObserver) {

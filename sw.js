@@ -9,24 +9,26 @@ self.addEventListener('activate', function (e) {
     return Promise.all(keys.filter(function (k) { return k.indexOf('dp-') === 0 && k !== CACHE && k !== FONTS; }).map(function (k) { return caches.delete(k); }));
   }).then(function () { return self.clients.claim(); }));
 });
+var SCOPE = new URL('./', self.location).pathname;
+function isAppPage(url) { return url.pathname === SCOPE || url.pathname === SCOPE + 'index.html'; }
 self.addEventListener('fetch', function (e) {
   var req = e.request; if (req.method !== 'GET') return;
   var url = new URL(req.url);
   if (req.mode === 'navigate') {
-    e.respondWith(fetch(req).then(function (res) { var copy = res.clone(); caches.open(CACHE).then(function (c) { c.put('./index.html', copy); }); return res; })
+    e.respondWith(fetch(req).then(function (res) { if (res.ok && isAppPage(url)) { var copy = res.clone(); caches.open(CACHE).then(function (c) { c.put('./index.html', copy); }); } return res; })
       .catch(function () { return caches.match('./index.html'); }));
     return;
   }
   if (url.origin === location.origin) {
     e.respondWith(caches.match(req).then(function (hit) {
-      return hit || fetch(req).then(function (res) { var copy = res.clone(); caches.open(CACHE).then(function (c) { c.put(req, copy); }); return res; });
+      return hit || fetch(req).then(function (res) { if (res.ok) { var copy = res.clone(); caches.open(CACHE).then(function (c) { c.put(req, copy); }); } return res; });
     }));
     return;
   }
   if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
     e.respondWith(caches.open(FONTS).then(function (c) {
       return c.match(req).then(function (hit) {
-        var net = fetch(req).then(function (res) { c.put(req, res.clone()); return res; }).catch(function () { return hit; });
+        var net = fetch(req).then(function (res) { if (res.ok) c.put(req, res.clone()); return res; }).catch(function () { return hit; });
         return hit || net;
       });
     }));

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   H, DAY, fmtDur, fmtVol, mins, median, sleepModel, isNightAt, isAsleepAt, clockNight, computeGaps,
-  periodStats, csvCell, toCsv, sortEntries, dayRange, startOfDay
+  periodStats, csvCell, toCsv, sortEntries, dayRange, startOfDay, sanitizeEntry, sanitizeSettings, migrateLog, DEFAULT_SETTINGS
 } from '../../js/core.js';
 
 const at = (s) => new Date(s).getTime();
@@ -101,6 +101,53 @@ test('csvCell quotes commas, quotes and newlines', () => {
   assert.equal(csvCell('a,b'), '"a,b"');
   assert.equal(csvCell('say "hi"'), '"say ""hi"""');
   assert.equal(csvCell(null), '');
+});
+
+test('csvCell defuses spreadsheet formulas', () => {
+  assert.equal(csvCell('=HYPERLINK("x")'), '"\'=HYPERLINK(""x"")"');
+  assert.equal(csvCell('+1'), "'+1");
+  assert.equal(csvCell('-2'), "'-2");
+  assert.equal(csvCell('@sum'), "'@sum");
+});
+
+test('sanitizeEntry keeps known fields and rejects unusable entries', () => {
+  const now = at('2026-10-24T12:00');
+  assert.equal(sanitizeEntry(null, now), null);
+  assert.equal(sanitizeEntry({ id: 'a', type: 'nap', t: now }, now), null);
+  assert.equal(sanitizeEntry({ id: 'a', type: 'pass', t: 'yesterday' }, now), null);
+  assert.equal(sanitizeEntry({ id: 'a', type: 'pass', t: now + 2 * DAY }, now), null);
+  assert.deepEqual(
+    sanitizeEntry({ id: 'a', type: 'pass', t: now, size: { label: 'huge', ml: '300' }, urgency: 'mild', bristol: 3, evil: '<img>' }, now),
+    { id: 'a', type: 'pass', t: now, size: { label: 'exact', ml: 300 }, urgency: 'mild' }
+  );
+  assert.deepEqual(sanitizeEntry({ id: 'b', type: 'drink', t: now, size: { ml: 'lots' }, kind: 'water' }, now), { id: 'b', type: 'drink', t: now, kind: 'water' });
+  assert.equal(sanitizeEntry({ id: 'c', type: 'pass', t: now, note: 'x'.repeat(500) }, now).note.length, 200);
+});
+
+test('sanitizeSettings ignores malformed values', () => {
+  const s = sanitizeSettings({ unit: 'gallons', nightStart: '25:00', nightEnd: '07:00', compare: 'yes', range: 7, dotScale: 'amount' });
+  assert.equal(s.unit, DEFAULT_SETTINGS.unit);
+  assert.equal(s.nightStart, DEFAULT_SETTINGS.nightStart);
+  assert.equal(s.nightEnd, '07:00');
+  assert.equal(s.compare, false);
+  assert.equal(s.range, 7);
+  assert.equal(s.dotScale, 'amount');
+});
+
+test('migrateLog drops invalid and duplicate entries and broken links', () => {
+  const now = at('2026-10-24T12:00');
+  const m = migrateLog([
+    { id: 'p', type: 'pass', t: now, withSolid: 'gone' },
+    { id: 'p', type: 'pass', t: now },
+    { id: 'x', type: 'unknown', t: now },
+    { id: 'q', type: 'pass', t: now, withSolid: 'q-s' },
+    { id: 'q-s', type: 'solid', t: now, withPass: 'q' }
+  ], 1, now);
+  assert.equal(m.dropped, 2);
+  assert.equal(m.log.length, 3);
+  assert.equal(m.log[0].withSolid, undefined);
+  assert.equal(m.log[1].withSolid, 'q-s');
+  assert.equal(m.log[2].withPass, 'q');
 });
 
 test('toCsv writes one row per entry', () => {
