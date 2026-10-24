@@ -1,0 +1,22 @@
+{
+  "name": "drink-pass-journal",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Installable, offline-first drink and bladder diary. The app is plain static files; these scripts are development tooling only.",
+  "type": "module",
+  "scripts": {
+    "serve": "node scripts/serve.mjs",
+    "lint": "eslint . && html-validate index.html",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "node --test \"tests/unit/*.test.js\"",
+    "test:e2e": "playwright test",
+    "lighthouse": "lhci autorun"
+  },
+  "devDependencies": {
+    "@lhci/cli": "^0.14.0",
+    "@playwright/test": "^1.48.0",
+    "eslint": "^9.13.0",
+    "globals": "^15.11.0",
+    "html-validate": "^8.24.0"
+  }
+}

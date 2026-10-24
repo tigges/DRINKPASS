@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Drink & Pass Journal</title>
+<title>Drink &amp; Pass Journal</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -19,7 +19,7 @@
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<svg class="sprite" width="0" height="0" aria-hidden="true">
   <symbol id="i-cup" viewBox="0 0 24 24"><path d="M6 4h12l-1.5 14.5a2 2 0 0 1-2 1.8h-5a2 2 0 0 1-2-1.8L6 4z"/><path d="M7.2 10h9.6"/></symbol>
   <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 3c3.5 4.2 6 7.2 6 10.5a6 6 0 0 1-12 0C6 10.2 8.5 7.2 12 3z"/></symbol>
   <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M19 7h1M4 17h1M11 17h9"/><circle cx="16" cy="7" r="2.5"/><circle cx="8" cy="17" r="2.5"/></symbol>
@@ -95,14 +95,14 @@
 <div class="sheet" id="sheet" role="dialog" aria-label="Entry details" hidden>
   <div class="grab"></div>
   <div class="top">
-    <h3 id="sheetTitle"></h3>
+    <h3 id="sheetTitle">Entry</h3>
     <button class="txt" id="sheetSkip" type="button">Done</button>
   </div>
   <p class="info" id="sheetInfo"></p>
 
   <div id="sizeSec">
     <div class="presets" id="presets"></div>
-    <button class="txt exactlink" id="exactToggle" type="button"><svg class="ic" style="width:16px;height:16px"><use href="#i-pencil"/></svg>Enter exact amount</button>
+    <button class="txt exactlink" id="exactToggle" type="button"><svg class="ic sm"><use href="#i-pencil"/></svg>Enter exact amount</button>
     <div class="exactrow" id="exactRow" hidden>
       <input id="exactInput" type="number" inputmode="decimal" min="0" step="any" aria-label="Exact amount">
       <span id="exactUnit">ml</span>
@@ -110,17 +110,17 @@
     </div>
   </div>
 
-  <div id="kindSec"><div class="lbl">Type of drink</div><div class="two" id="kindBtns" style="margin-top:0"></div></div>
-  <div id="urgSec"><div class="lbl">Urgency</div><div class="two" id="urgBtns" style="margin-top:0"></div></div>
-  <div id="bristolSec"><div class="lbl">Stool type (Bristol scale: 1 hard lumps, 4 smooth, 7 liquid)</div><div class="two" id="bristolBtns" style="margin-top:0;grid-template-columns:repeat(7,minmax(0,1fr))"></div></div>
+  <div id="kindSec"><div class="lbl">Type of drink</div><div class="two flush" id="kindBtns"></div></div>
+  <div id="urgSec"><div class="lbl">Urgency</div><div class="two flush" id="urgBtns"></div></div>
+  <div id="bristolSec"><div class="lbl">Stool type (Bristol scale: 1 hard lumps, 4 smooth, 7 liquid)</div><div class="two flush seven" id="bristolBtns"></div></div>
 
   <div id="noteSec">
-    <button class="txt exactlink" id="noteToggle" type="button"><svg class="ic" style="width:16px;height:16px"><use href="#i-note"/></svg><span id="noteToggleText">Add a note</span></button>
+    <button class="txt exactlink" id="noteToggle" type="button"><svg class="ic sm"><use href="#i-note"/></svg><span id="noteToggleText">Add a note</span></button>
     <div id="noteRow" hidden><input id="noteInput" type="text" maxlength="200" placeholder="For example, after coffee" aria-label="Note"></div>
   </div>
 
   <div id="timeSec">
-    <button class="txt exactlink" id="timeToggle" type="button"><svg class="ic" style="width:16px;height:16px"><use href="#i-clock"/></svg>Change time</button>
+    <button class="txt exactlink" id="timeToggle" type="button"><svg class="ic sm"><use href="#i-clock"/></svg>Change time</button>
     <div id="timeRow" hidden><div class="exactrow"><input id="timeInput" type="datetime-local" aria-label="Date and time"><button class="btn" id="nudgeM" type="button">−5 min</button><button class="btn" id="nudgeP" type="button">+5 min</button></div></div>
   </div>
 
@@ -152,7 +152,7 @@
     <div class="hero">
       <div class="plotwrap">
         <div class="daylabels" id="dayLabels"></div>
-        <div style="flex:1;min-width:0">
+        <div class="plotmain">
           <div class="plot" id="plot" role="img" aria-label="Dot chart of drinks and passes"></div>
           <div class="axis" id="axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
           <div class="tllab" id="tlLab" hidden></div>
@@ -174,7 +174,7 @@
       <button class="chip" type="button" data-days="3" aria-pressed="true">3 days</button>
       <button class="chip" type="button" data-days="7" aria-pressed="false">7 days</button>
     </div>
-    <div class="printonly" id="reportTitle" style="margin-bottom:8px"></div>
+    <div class="printonly reptitle" id="reportTitle"></div>
     <div id="reportChart"></div>
     <div class="scroll" id="reportTable"></div>
     <div class="setrow noprint">
@@ -190,7 +190,7 @@
 <div class="overlay" id="settingsSheet" role="dialog" aria-modal="true" aria-label="Settings and backup" hidden>
   <div class="inner">
     <div class="oh"><h2>Settings and backup</h2><button class="iconbtn" data-close="settingsSheet" type="button" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button></div>
-    <div class="sech" style="margin-top:4px">Units</div>
+    <div class="sech first">Units</div>
     <div class="setrow" role="group" aria-label="Units">
       <button class="chip" type="button" data-unit="ml" aria-pressed="true">ml</button>
       <button class="chip" type="button" data-unit="oz" aria-pressed="false">fl oz</button>
@@ -203,13 +203,13 @@
       <button class="chip" type="button" data-toggle="trackSolid" aria-pressed="false">Solid</button>
       <button class="chip" type="button" data-toggle="showBristol" aria-pressed="false">Stool type</button>
     </div>
-    <p class="hint" style="margin-top:-4px">Chosen options appear in the bar after each tap. Solid adds a Water, Solid, Both row after Pass, and Stool type adds the Bristol scale (1 to 7) for solids. Anything switched off stays under More. Notes and Change time are always under More.</p>
+    <p class="hint tight">Chosen options appear in the bar after each tap. Solid adds a Water, Solid, Both row after Pass, and Stool type adds the Bristol scale (1 to 7) for solids. Anything switched off stays under More. Notes and Change time are always under More.</p>
     <div class="sech">Dots on the chart</div>
     <div class="setrow" role="group" aria-label="Dots on the chart">
       <button class="chip" type="button" data-dots="same" aria-pressed="true">Same size</button>
       <button class="chip" type="button" data-dots="amount" aria-pressed="false">By amount</button>
     </div>
-    <p class="hint" style="margin-top:-4px">By amount makes bigger drinks and passes show as bigger dots. It applies to 24 h, 3 d and 7 d.</p>
+    <p class="hint tight">By amount makes bigger drinks and passes show as bigger dots. It applies to 24 h, 3 d and 7 d.</p>
     <div class="sech">Insights</div>
     <div class="setrow" role="group" aria-label="Insights">
       <button class="chip" type="button" data-toggle="compare" aria-pressed="false">Compare with previous period</button>
@@ -219,22 +219,22 @@
     <div class="setrow"><label for="nightEnd">Night ends</label><input class="timein" id="nightEnd" type="time" value="06:00"></div>
     <p class="hint">Tapping the moon (going to bed) and sun (up for the day) defines your night instead. These hours are the fallback when you haven’t marked sleep.</p>
     <div class="sech">Storage</div>
-    <p class="hint" id="storeStatus" style="margin:0 0 6px"></p>
+    <p class="hint lead" id="storeStatus"></p>
     <div class="setrow"><button class="btn" id="persistBtn" type="button" hidden>Ask the browser to keep my data</button><span id="persistMsg" class="hint"></span></div>
-    <p class="hint" style="margin-top:-4px">Your entries are saved in this browser, with automatic copies kept alongside. Clearing browser data removes both, so save a backup file now and then, for example to iCloud Drive or Files.</p>
+    <p class="hint tight">Your entries are saved in this browser, with automatic copies kept alongside. Clearing browser data removes both, so save a backup file now and then, for example to iCloud Drive or Files.</p>
     <details class="auto"><summary>Automatic copies</summary><div id="snapList"></div></details>
 
     <div class="sech">Backup</div>
-    <p class="hint" id="lastBackup" style="margin:0 0 6px"></p>
+    <p class="hint lead" id="lastBackup"></p>
     <div class="setrow"><button class="btn" id="dlBackup" type="button" hidden>Download backup</button><button class="btn" id="copyBackup" type="button">Copy backup</button><span id="backupMsg" class="hint"></span></div>
-    <div class="setrow"><label class="btn" for="restoreFile" style="display:inline-flex;align-items:center">Restore from file</label><input class="vh" id="restoreFile" type="file" accept=".json,application/json,text/plain"></div>
-    <label for="restoreBox" style="font-weight:600">Or paste a backup</label>
+    <div class="setrow"><label class="btn filebtn" for="restoreFile">Restore from file</label><input class="vh" id="restoreFile" type="file" accept=".json,application/json,text/plain"></div>
+    <label class="strong" for="restoreBox">Or paste a backup</label>
     <textarea id="restoreBox" placeholder="Paste a backup here"></textarea>
     <div class="setrow"><button class="btn" id="restoreBtn" type="button">Check backup</button></div>
     <div class="panelbox" id="restorePrev" hidden>
       <div id="restorePrevText"></div>
       <label class="chk" id="restoreSetRow"><input type="checkbox" id="restoreSettings" checked>Also restore the settings from this backup</label>
-      <div class="setrow" style="margin-bottom:0"><button class="btn primary" id="restoreGo" type="button">Add entries</button><button class="btn" id="restoreCancel" type="button">Cancel</button></div>
+      <div class="setrow last"><button class="btn primary" id="restoreGo" type="button">Add entries</button><button class="btn" id="restoreCancel" type="button">Cancel</button></div>
     </div>
     <p class="hint" id="installTip">To install: in Safari tap Share, then Add to Home Screen. In Chrome open the menu and choose Install app. Restore your backup from inside the installed app, because the browser tab and the installed app keep separate storage on iPhone.</p>
     <div class="sech">Recently removed</div>
