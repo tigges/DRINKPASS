@@ -1,7 +1,7 @@
 import {
   OZ, H, DAY, PRESETS, URG, KINDS, KINDS_SHORT, NAMES, BRISTOL,
   isSleep, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime, fmtDur, agoText, toLocalInput,
-  sortEntries, sleepModel, sanitizeSettings, migrateLog, DEFAULT_SETTINGS, SCHEMA, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
+  sortEntries, between, sleepModel, sanitizeSettings, migrateLog, DEFAULT_SETTINGS, SCHEMA, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
   fmtVol as fmtVolIn
 } from './core.js';
 
@@ -28,6 +28,7 @@ function quarantine(key, raw) {
   loadProblem = true;
 }
 function loadLog() {
+  touch();
   var r = readJson(KEY);
   if (r.bad) { quarantine(KEY, r.raw); log = []; return; }
   if (r.missing || !Array.isArray(r.value)) { log = []; return; }
@@ -57,6 +58,7 @@ function load() {
 }
 function saveBk() { try { localStorage.setItem(BKEY, JSON.stringify(bk)); } catch (e) {} }
 function save() {
+  touch();
   try { localStorage.setItem(KEY, JSON.stringify(log)); localStorage.setItem(SKEY, JSON.stringify(settings)); localStorage.setItem(MKEY, String(SCHEMA)); storageOk = true; } catch (e) { storageOk = false; }
   $('storageWarn').hidden = storageOk;
   scheduleMirror();
@@ -75,7 +77,10 @@ function backupStatus() {
 function markBackup() { bk.last = Date.now(); bk.done = Date.now(); bk.snooze = 0; saveBk(); updateNudge(); backupStatus(); }
 
 function fmtVol(ml) { return fmtVolIn(ml, settings.unit); }
-function sorted() { return sortEntries(log); }
+// Every change to `log` goes through save() or loadLog(), which clear these caches.
+var sortedCache = null, gapsCache = null;
+function touch() { sortedCache = null; gapsCache = null; }
+function sorted() { if (!sortedCache) sortedCache = sortEntries(log); return sortedCache; }
 function find(id) { for (var i = 0; i < log.length; i++) if (log[i].id === id) return log[i]; return null; }
 function svgIcon(id, px, cls) {
   var s = document.createElementNS(NS, 'svg'); s.setAttribute('class', 'ic' + (cls ? ' ' + cls : '')); s.setAttribute('aria-hidden', 'true');
@@ -162,7 +167,7 @@ function renderTrash() {
   });
 }
 
-function gaps() { return computeGaps(sorted()); }
+function gaps() { if (!gapsCache) gapsCache = computeGaps(sorted()); return gapsCache; }
 function gapLine(x, g) {
   if (x.type === 'solid') return (g.solid !== null && g.solid !== undefined && g.solid < 3 * DAY) ? fmtDur(g.solid) + ' since last solid' : 'No solid in the previous 3 days';
   if (x.type === 'pass') return (g.pass !== null && g.pass < DAY) ? fmtDur(g.pass) + ' after last pass' : 'No pass in the previous 24 h';
@@ -170,7 +175,7 @@ function gapLine(x, g) {
 }
 function sizeText(x) { return x.size ? (x.size.label === 'exact' ? 'Exact' : cap(x.size.label)) + ' · ' + fmtVol(x.size.ml) : ''; }
 function lastSize(type, exceptId) {
-  var s = sorted().reverse();
+  var s = sorted().slice().reverse();
   for (var i = 0; i < s.length; i++) if (s[i].type === type && s[i].size && s[i].id !== exceptId) return s[i].size.ml;
   return null;
 }
@@ -250,7 +255,7 @@ function openSheet(entry, keepTime) {
   $('sheetRemove').hidden = false;
   $('sheet').hidden = false;
 }
-function hideSheet() { $('sheet').hidden = true; }
+function hideSheet() { flushNote(); $('sheet').hidden = true; }
 function closeSheet() { sheetId = null; hideSheet(); render(); }
 function setSize(label, ml) {
   var e = find(sheetId); if (!e) return;
@@ -261,7 +266,7 @@ function setSize(label, ml) {
 function hideBar() { clearTimeout(barTimer); barId = null; barRestore = null; $('barMore').hidden = false; $('bar').hidden = true; }
 function armBar(ms) { clearTimeout(barTimer); barTimer = setTimeout(hideBar, ms); }
 function lastKind(exceptId) {
-  var q = sorted().reverse();
+  var q = sorted().slice().reverse();
   for (var i = 0; i < q.length; i++) if (q[i].type === 'drink' && q[i].kind && q[i].id !== exceptId) return q[i].kind;
   return null;
 }
@@ -423,7 +428,7 @@ function buildRow(x, info, withDay) {
   return b;
 }
 function renderLatest() {
-  var wrap = $('list'), s = sorted().reverse(), info = gaps();
+  var wrap = $('list'), s = sorted().slice().reverse(), info = gaps();
   var today = startOfDay(Date.now());
   $('todayCount').textContent = s.filter(function (x) { return x.t >= today; }).length + ' today';
   wrap.textContent = '';
@@ -441,7 +446,7 @@ function renderLatest() {
 }
 function renderLog() {
   var r = dayRange(dayOffset), s = sorted(), info = gaps();
-  var day = s.filter(function (x) { return x.t >= r[0] && x.t < r[1]; });
+  var day = between(s, r[0], r[1]);
   $('dayLabel').textContent = dayOffset === 0 ? 'Today' : dayOffset === -1 ? 'Yesterday'
     : new Date(r[0]).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' });
   $('next').disabled = dayOffset >= 0;
@@ -449,7 +454,7 @@ function renderLog() {
   if (!day.length) { var e = document.createElement('div'); e.className = 'empty'; e.textContent = 'Nothing was logged on this day.'; wrap.appendChild(e); return; }
   day.slice().reverse().forEach(function (x) { wrap.appendChild(buildRow(x, info, false)); });
 }
-function renderList() { renderLatest(); renderLog(); }
+function renderList() { renderLatest(); if (!$('logSheet').hidden) renderLog(); }
 
 function nightSegments(from, step, count) {
   var segs = [], cur = null;
@@ -494,7 +499,7 @@ function renderInsights() {
       var d = document.createElement('div'); d.className = 'nb';
       d.style.left = (sg[0] / count * 100) + '%'; d.style.width = ((sg[1] - sg[0]) / count * 100) + '%'; d.style.top = '0'; d.style.height = '100%'; plot.appendChild(d);
     });
-    var items = s.filter(function (x) { return x.t >= start && x.t <= now; });
+    var items = between(s, start, now + 1);
     rangeItems = items.filter(function (x) { return !isSleep(x); });
     items.forEach(function (x) {
       var pos = Math.max(1, Math.min(99, (x.t - start) / DAY * 100));
@@ -532,7 +537,7 @@ function renderInsights() {
           d.style.left = (sg[0] / 96 * 100) + '%'; d.style.width = ((sg[1] - sg[0]) / 96 * 100) + '%';
           d.style.top = (i * rowH) + 'px'; d.style.height = rowH + 'px'; plot.appendChild(d);
         });
-        var items = s.filter(function (x) { return x.t >= r[0] && x.t < r[1] && !isSleep(x); });
+        var items = between(s, r[0], r[1]).filter(function (x) { return !isSleep(x); });
         if (items.length) withData++;
         rangeItems = rangeItems.concat(items);
         items.forEach(function (x) { mk(x, x.type, (x.t - ds) / DAY * 100, i * rowH + (x.type === 'drink' ? cD : x.type === 'solid' ? cS : cP), base); });
@@ -540,8 +545,8 @@ function renderInsights() {
         dayIn.push(si[0]); dayOut.push(so[0]); if (si[1]) inC++; if (so[1]) outC++;
       })(i);
     }
-    s.forEach(function (x) {
-      if (x.t < firstStart || x.type !== 'pass') return;
+    between(s, firstStart, Infinity).forEach(function (x) {
+      if (x.type !== 'pass') return;
       passes.push(x.t); var nn = isNight(x.t); passFlags.push(nn); if (nn) nightPasses++; if (x.size) vols.push(x.size.ml);
     });
     inMl = dayIn.reduce(function (a, b) { return a + b; }, 0); outMl = dayOut.reduce(function (a, b) { return a + b; }, 0);
@@ -668,7 +673,7 @@ function reportData() {
   var s = sorted(), out = [];
   for (var o = -(reportDays - 1); o <= 0; o++) {
     var r = dayRange(o);
-    out.push({ start: r[0], items: s.filter(function (x) { return x.t >= r[0] && x.t < r[1]; }) });
+    out.push({ start: r[0], items: between(s, r[0], r[1]) });
   }
   return out;
 }
@@ -764,7 +769,11 @@ function saveFile(name, data, msgEl, onOk) {
 }
 function stamp() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 
-function render() { refreshSleep(); syncSleepBtn(); renderStats(); renderList(); renderReport(); renderInsights(); updateNudge(); }
+function render() {
+  refreshSleep(); syncSleepBtn(); renderStats(); renderList(); updateNudge();
+  if (!$('insightsSheet').hidden) renderInsights();
+  if (!$('reportSheet').hidden) renderReport();
+}
 function showOverlay(id) { $(id).hidden = false; var c = $(id).querySelector('[data-close]'); if (c) c.focus(); }
 function hideOverlay(id) { $(id).hidden = true; }
 
@@ -791,10 +800,15 @@ $('exactSave').addEventListener('click', function () {
   setSize('exact', settings.unit === 'oz' ? v * OZ : v);
 });
 $('noteToggle').addEventListener('click', function () { $('noteRow').hidden = false; $('noteInput').focus(); });
+var noteTimer = null, pendingNote = null;
+function flushNote() { if (!pendingNote) return; clearTimeout(noteTimer); pendingNote = null; save(); }
 $('noteInput').addEventListener('input', function () {
   var e = find(sheetId); if (!e) return;
-  var v = this.value.trim(); if (v) e.note = v; else delete e.note; save();
+  var v = this.value.trim(); if (v) e.note = v; else delete e.note;
+  pendingNote = { id: e.id, v: v };
+  clearTimeout(noteTimer); noteTimer = setTimeout(flushNote, 500);
 });
+$('noteInput').addEventListener('blur', flushNote);
 $('timeToggle').addEventListener('click', function () { $('timeRow').hidden = false; $('timeInput').focus(); });
 $('timeInput').addEventListener('change', function () {
   var e = find(sheetId); if (!e || !this.value) return;
@@ -830,7 +844,7 @@ document.addEventListener('keydown', function (e) {
     else hideOverlay('insightsSheet');
   }
 });
-each('[data-range]', function (b) { b.addEventListener('click', function () { rangeDays = +b.getAttribute('data-range'); settings.range = rangeDays; save(); reportDays = rangeDays > 7 ? 7 : rangeDays; renderInsights(); renderReport(); }); });
+each('[data-range]', function (b) { b.addEventListener('click', function () { rangeDays = +b.getAttribute('data-range'); settings.range = rangeDays; save(); reportDays = rangeDays > 7 ? 7 : rangeDays; renderInsights(); }); });
 each('[data-days]', function (b) { b.addEventListener('click', function () { reportDays = +b.getAttribute('data-days'); renderReport(); }); });
 $('copyCsv').addEventListener('click', function () { copyText(csv(), $('reportMsg'), 'CSV copied'); });
 $('dlCsv').addEventListener('click', function () { saveFile('drink-pass-' + stamp() + '.csv', csv(), $('reportMsg')); });
@@ -998,8 +1012,11 @@ $('restoreGo').addEventListener('click', function () {
 // Another tab saved: pick up its entries instead of overwriting them on our next save.
 window.addEventListener('storage', function (e) {
   if (e.storageArea !== localStorage) return;
-  var all = e.key === null;
-  if (all || e.key === KEY) loadLog();
+  var all = e.key === null, note = pendingNote;
+  if (all || e.key === KEY) {
+    loadLog();
+    if (note) { var ne = find(note.id); if (ne) { if (note.v) ne.note = note.v; else delete ne.note; } flushNote(); }
+  }
   if (all || e.key === SKEY) { loadSettings(); syncSettings(); }
   if (all || e.key === TKEY) { try { var tr = readJson(TKEY); trash = Array.isArray(tr.value) ? tr.value : []; } catch (er) {} renderTrash(); }
   if (all || e.key === BKEY) { try { var b = readJson(BKEY); if (b.value) bk = { last: +b.value.last || 0, snooze: +b.value.snooze || 0, done: +b.value.done || 0 }; } catch (er) {} backupStatus(); }
@@ -1008,7 +1025,8 @@ window.addEventListener('storage', function (e) {
   $('loadWarn').hidden = !loadProblem;
   render();
 });
-document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') mirrorNow(); });
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') { flushNote(); mirrorNow(); } });
+window.addEventListener('pagehide', flushNote);
 
 function syncSettings() {
   each('[data-unit]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-unit') === settings.unit ? 'true' : 'false'); });

@@ -37,6 +37,15 @@ export function fmtVol(ml, unit) { return unit === 'oz' ? (Math.round(ml / OZ * 
 export function toLocalInput(ms) { var d = new Date(ms); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
 export function isoDate(ms) { var d = new Date(ms); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 export function sortEntries(log) { return log.slice().sort(function (a, b) { return a.t - b.t; }); }
+/** Entries with a <= t < b from a time-sorted array, found by binary search. */
+export function between(sorted, a, b) {
+  return sorted.slice(firstAtOrAfter(sorted, a), firstAtOrAfter(sorted, b));
+}
+function firstAtOrAfter(sorted, v) {
+  var lo = 0, hi = sorted.length;
+  while (lo < hi) { var mid = (lo + hi) >> 1; if (sorted[mid].t < v) lo = mid + 1; else hi = mid; }
+  return lo;
+}
 
 function inferBed(wakeT, lastWake, nightStart) {
   var p = (nightStart || '22:00').split(':'), d = new Date(wakeT); d.setHours(+p[0], +p[1], 0, 0);
@@ -55,7 +64,17 @@ export function sleepModel(sorted, nightStart) {
     }
   });
   if (openBed !== null) out.push([openBed, openBed + 12 * H, false]);
-  return { periods: out, markers: m.map(function (x) { return x.t; }), last: m[m.length - 1] || null };
+  out.sort(function (a, b) { return a[0] - b[0]; });
+  // maxEnd[i] is the latest end among periods[0..i]; periods can overlap after a missed wake.
+  var maxEnd = [], hi = -Infinity;
+  out.forEach(function (p) { hi = Math.max(hi, p[1]); maxEnd.push(hi); });
+  return { periods: out, maxEnd: maxEnd, markers: m.map(function (x) { return x.t; }), last: m[m.length - 1] || null };
+}
+/** Index of the last value whose key is <= v in an ascending array, or -1. */
+function lastAtOrBefore(arr, v, key) {
+  var lo = 0, hi = arr.length - 1, ans = -1;
+  while (lo <= hi) { var mid = (lo + hi) >> 1; if (key(arr[mid]) <= v) { ans = mid; lo = mid + 1; } else hi = mid - 1; }
+  return ans;
 }
 export function clockNight(ms, nightStart, nightEnd) {
   var d = new Date(ms), m = d.getHours() * 60 + d.getMinutes();
@@ -64,9 +83,12 @@ export function clockNight(ms, nightStart, nightEnd) {
   return s > e ? (m >= s || m < e) : (m >= s && m < e);
 }
 export function isNightAt(ms, model, nightStart, nightEnd) {
-  var i, periods = model.periods, markers = model.markers;
-  for (i = 0; i < periods.length; i++) if (ms >= periods[i][0] && ms < periods[i][1]) return true;
-  for (i = 0; i < markers.length; i++) if (Math.abs(ms - markers[i]) < 12 * H) return false;
+  var periods = model.periods, markers = model.markers;
+  var p = lastAtOrBefore(periods, ms, function (q) { return q[0]; });
+  if (p > -1 && model.maxEnd[p] > ms) return true;
+  var k = lastAtOrBefore(markers, ms, function (q) { return q; });
+  if (k > -1 && ms - markers[k] < 12 * H) return false;
+  if (k + 1 < markers.length && markers[k + 1] - ms < 12 * H) return false;
   return clockNight(ms, nightStart, nightEnd);
 }
 export function isAsleepAt(model, now) {
@@ -88,8 +110,8 @@ export function computeGaps(sorted) {
 
 export function periodStats(sorted, a, b, isNight) {
   var st = { outMl: 0, inMl: 0, outDays: {}, inDays: {}, night: 0, passes: [], solids: 0, med: null };
-  sorted.forEach(function (x) {
-    if (x.t < a || x.t >= b || isSleep(x)) return;
+  between(sorted, a, b).forEach(function (x) {
+    if (isSleep(x)) return;
     var dk = startOfDay(x.t);
     if (x.type === 'pass') { st.passes.push(x.t); if (isNight(x.t)) st.night++; if (x.size) { st.outMl += x.size.ml; st.outDays[dk] = 1; } }
     else if (x.type === 'drink') { if (x.size) { st.inMl += x.size.ml; st.inDays[dk] = 1; } }
