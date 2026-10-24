@@ -480,11 +480,6 @@ function nightSegments(from, step, count) {
   return segs;
 }
 function el(tag, cls, txt) { var e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; }
-function segBar(parts) {
-  var bar = el('div', 'seg');
-  parts.forEach(function (p) { if (!p.n) return; var d = el('div', '', p.text || ''); d.style.flex = String(p.n); d.style.background = p.color; d.style.color = p.ink; bar.appendChild(d); });
-  return bar;
-}
 function signed(n, f) { return n === 0 ? t('same') : (n > 0 ? '+' : '−') + f(Math.abs(n)); }
 function periodStats(a, b) { return periodStatsOf(sorted(), a, b, isNight); }
 function tile(label, wide) { var t = el('div', 'tile' + (wide ? ' wide' : '')); t.appendChild(el('div', 'l', label)); return t; }
@@ -494,7 +489,7 @@ function renderInsights() {
   plot.textContent = ''; lab.textContent = ''; tl.textContent = '';
   var amount = settings.dotScale === 'amount' && rangeDays <= 7, anyNoSize = false;
   var solidLane = settings.trackSolid || s.some(function (x) { return x.type === 'solid'; });
-  var rangeItems = [], passes = [], passFlags = [], vols = [], nightPasses = 0, withData = 0, inMl = 0, inC = 0, outMl = 0, outC = 0, dayIn = [], dayOut = [];
+  var rangeItems = [], passes = [], passFlags = [], vols = [], nightPasses = 0, withData = 0, inMl = 0, inC = 0, outMl = 0, outC = 0, dayIn = [], dayOut = [], dayPasses = [];
   function mk(x, cls, left, cy, base) {
     var size = (x.size && amount) ? Math.max(5, Math.min(solidLane ? 9 : 13, Math.round(5 + x.size.ml / 400 * 7))) : base;
     var noSize = !x.size && x.type !== 'solid';
@@ -555,8 +550,10 @@ function renderInsights() {
         if (items.length) withData++;
         rangeItems = rangeItems.concat(items);
         items.forEach(function (x) { mk(x, x.type, (x.t - ds) / DAY * 100, i * rowH + (x.type === 'drink' ? cD : x.type === 'solid' ? cS : cP), base); });
-        var si = sum(items.filter(function (x) { return x.type === 'drink'; })), so = sum(items.filter(function (x) { return x.type === 'pass'; }));
+        var dp = items.filter(function (x) { return x.type === 'pass'; });
+        var si = sum(items.filter(function (x) { return x.type === 'drink'; })), so = sum(dp);
         dayIn.push(si[0]); dayOut.push(so[0]); if (si[1]) inC++; if (so[1]) outC++;
+        dayPasses.push({ start: ds, n: dp.length, night: dp.filter(function (x) { return isNight(x.t); }).length, solid: items.some(function (x) { return x.type === 'solid'; }) });
       })(i);
     }
     between(s, firstStart, Infinity).forEach(function (x) {
@@ -573,32 +570,79 @@ function renderInsights() {
   if (anyNoSize) li('ring', '', t('No size'));
   if (amount) { var sp2 = el('span'); [6, 9, 12].forEach(function (z) { var i = el('i'); i.style.cssText = 'background:var(--muted);width:' + z + 'px;height:' + z + 'px'; sp2.appendChild(i); }); sp2.appendChild(document.createTextNode(t('Bigger dot, bigger amount'))); lg.appendChild(sp2); }
 
-  // tiles
+  // Cards below the chart: drinks and output, passes, bowel.
   var tiles = $('tiles'); tiles.textContent = ''; var multi = rangeDays > 1;
   var gp = [];
   for (var k = 1; k < passes.length; k++) if (passes[k] - passes[k - 1] < DAY) gp.push(passes[k] - passes[k - 1]);
-
   var cmp = null;
   if (settings.compare) {
     var nowT = Date.now(), curA = rangeDays === 1 ? nowT - DAY : dayRange(-(rangeDays - 1))[0];
     var prevA = rangeDays === 1 ? nowT - 2 * DAY : dayRange(-(2 * rangeDays - 1))[0], prevB = rangeDays === 1 ? nowT - DAY : curA;
     cmp = { cur: periodStats(curA, nowT + 1), prev: periodStats(prevA, prevB), label: rangeDays === 1 ? t('vs previous 24 h') : t('vs previous {n} days', { n: rangeDays }) };
   }
-  function avgOf(ml, n) { return multi ? (n ? ml / n : 0) : ml; }
-  var io = tile(multi ? t('In and out, per day') : t('In and out'), true);
+  function section(title, color, note) {
+    var h = el('div', 'insh'), h3 = el('h3'), dot = el('i');
+    dot.style.background = color; h3.appendChild(dot); h3.appendChild(document.createTextNode(title)); h.appendChild(h3);
+    if (note) h.appendChild(el('span', '', note));
+    tiles.appendChild(h);
+  }
+  /** Labelled horizontal bars: rows of [label, detail, count, colour]. */
+  function barList(box, title, note, rows) {
+    var blk = el('div', 'blist'), hd = el('div', 'blh');
+    hd.appendChild(el('span', '', title)); if (note) hd.appendChild(el('b', '', note)); blk.appendChild(hd);
+    var top = Math.max.apply(null, rows.map(function (r) { return r[2]; })) || 1;
+    rows.forEach(function (r) {
+      var row = el('div', 'brow'), lb = el('span', 'bl', r[0]);
+      if (r[1]) lb.appendChild(el('small', '', r[1]));
+      var tr = el('div', 'track'), f = el('i'); f.style.width = (r[2] / top * 100) + '%'; f.style.background = r[3]; tr.appendChild(f);
+      row.appendChild(lb); row.appendChild(tr); row.appendChild(el('b', '', String(r[2]))); blk.appendChild(row);
+    });
+    box.appendChild(blk);
+  }
+
+  // Drinks and output. Per day averages over the days that have sizes, as in the clinician summary.
+  section(t('Drinks and output'), 'var(--drink)', multi ? t('per day') : t('last 24 h'));
+  var io = el('div', 'tile wide');
   var iv = inC ? (multi ? inMl / inC : inMl) : 0, ov = outC ? (multi ? outMl / outC : outMl) : 0, mx = Math.max(iv, ov);
+  var KC = { water: '#1572b5', teacoffee: '#6aa6d6', alcohol: '#0b3d63', other: '#b9d3e8', na: '#d5dee3' };
+  var kv = {}, kindMl = 0;
+  rangeItems.forEach(function (x) { if (x.type !== 'drink' || !x.size) return; var key = x.kind && KC[x.kind] ? x.kind : 'na'; kv[key] = (kv[key] || 0) + x.size.ml; kindMl += x.size.ml; });
+  var kinds = ['water', 'teacoffee', 'alcohol', 'other', 'na'].filter(function (q) { return kv[q]; });
+  var split = kinds.length > 1 || (kinds.length === 1 && kinds[0] !== 'na');
   if (!mx) io.appendChild(el('div', 'empty2', t('Add sizes to your entries to see volumes.')));
-  else [[t('In'), iv, 'var(--drink)'], [t('Out'), ov, 'var(--pass)']].forEach(function (q) {
-    var row = el('div', 'io'); row.appendChild(el('span', 'k', q[0]));
-    var tr = el('div', 'track'), f = el('div', 'fill'); f.style.width = (q[1] / mx * 100) + '%'; f.style.background = q[2]; tr.appendChild(f); row.appendChild(tr);
-    row.appendChild(el('span', 'v', q[1] ? fmtVol(q[1]) : '–')); io.appendChild(row);
-  });
+  else {
+    [[t('In'), iv, 'var(--drink)'], [t('Out'), ov, 'var(--pass)']].forEach(function (q, qi) {
+      var row = el('div', 'io'); row.appendChild(el('span', 'k', q[0]));
+      var tr = el('div', 'track'), f = el('div', 'fill'); f.style.width = (q[1] / mx * 100) + '%';
+      if (qi === 0 && split) kinds.forEach(function (key) { var part = el('i'); part.style.width = (kv[key] / kindMl * 100) + '%'; part.style.background = KC[key]; f.appendChild(part); });
+      else f.style.background = q[2];
+      tr.appendChild(f); row.appendChild(tr);
+      row.appendChild(el('span', 'v', q[1] ? fmtVol(q[1]) : '–')); io.appendChild(row);
+    });
+    if (split) {
+      var kl = el('div', 'kinds');
+      kinds.forEach(function (key) {
+        var it = el('div'), sw = el('i'); sw.style.background = KC[key]; it.appendChild(sw);
+        it.appendChild(document.createTextNode(key === 'na' ? t('Not recorded') : t(labelOf(KINDS, key))));
+        it.appendChild(el('b', '', fmtVol(kv[key] / kindMl * iv))); kl.appendChild(it);
+      });
+      io.appendChild(kl);
+      var irritant = (kv.teacoffee || 0) + (kv.alcohol || 0);
+      if (irritant) io.appendChild(el('div', 'insnote', t('Tea, coffee and alcohol were {p}% of what you drank. Caffeine and alcohol can irritate the bladder.', { p: Math.round(irritant / kindMl * 100) })));
+    }
+  }
+  function avgOf(ml, n) { return multi ? (n ? ml / n : 0) : ml; }
   if (cmp) {
-    if (cmp.prev.outN || cmp.prev.inN) io.appendChild(el('div', 'sub', t('Out') + ' ' + signed(avgOf(cmp.cur.outMl, cmp.cur.outN) - avgOf(cmp.prev.outMl, cmp.prev.outN), fmtVol) + ' · ' + t('In') + ' ' + signed(avgOf(cmp.cur.inMl, cmp.cur.inN) - avgOf(cmp.prev.inMl, cmp.prev.inN), fmtVol) + ' ' + cmp.label));
+    if (cmp.prev.outN || cmp.prev.inN) io.appendChild(el('div', 'sub', t('In') + ' ' + signed(avgOf(cmp.cur.inMl, cmp.cur.inN) - avgOf(cmp.prev.inMl, cmp.prev.inN), fmtVol) + ' · ' + t('Out') + ' ' + signed(avgOf(cmp.cur.outMl, cmp.cur.outN) - avgOf(cmp.prev.outMl, cmp.prev.outN), fmtVol) + ' ' + cmp.label));
     else io.appendChild(el('div', 'sub', t('No earlier data to compare.')));
   }
   tiles.appendChild(io);
 
+  // Passes
+  var passNote = !passes.length ? '' : multi
+    ? t('{n} in {d} days', { n: passes.length, d: rangeDays }) + ' · ' + t('{n} a day', { n: num(passes.length / Math.max(1, withData)) })
+    : t('{n} in 24 h', { n: passes.length });
+  section(t('Passes'), 'var(--pass)', passNote);
   var gt = tile(t('Typical gap'));
   gt.appendChild(el('div', 'n', gp.length ? fmtDur(median(gp)) : '–'));
   if (gp.length) {
@@ -625,61 +669,96 @@ function renderInsights() {
   if (cmp && cmp.prev.passes.length) nt.appendChild(el('div', 'sub', signed(cmp.cur.night - cmp.prev.night, String) + ' ' + cmp.label));
   tiles.appendChild(nt);
 
+  var rangePasses = rangeItems.filter(function (x) { return x.type === 'pass'; });
+  if (multi && rangePasses.length) {
+    var pd = tile(t('Passes each day'), true), key = el('span', 'pdkey');
+    [['var(--pass)', t('Day')], ['var(--ink)', t('Night')]].forEach(function (q) { var sw = el('i'); sw.style.background = q[0]; key.appendChild(sw); key.appendChild(document.createTextNode(q[1])); });
+    pd.firstChild.appendChild(key);
+    var cols = el('div', 'pdays'), labs = el('div', 'pdlabs'), most = Math.max.apply(null, dayPasses.map(function (d) { return d.n; })) || 1;
+    cols.style.setProperty('--n', dayPasses.length); labs.style.setProperty('--n', dayPasses.length);
+    dayPasses.forEach(function (d, i) {
+      var c = el('div', 'pday'), last = i === dayPasses.length - 1;
+      c.setAttribute('role', 'img');
+      c.setAttribute('aria-label', fmtDate(d.start, { weekday: 'long', day: 'numeric', month: 'long' }) + ': ' + tn(d.n, '{n} pass, {m} at night', '{n} passes, {m} at night', { m: d.night }));
+      if (rangeDays <= 14 && d.n) c.appendChild(el('span', 'pn', String(d.n)));
+      var bar = el('div', 'pbar' + (d.n ? '' : ' none')); bar.style.height = (d.n / most * 100) + '%';
+      var nn = el('div', 'pnight'); nn.style.height = d.n ? (d.night / d.n * 100) + '%' : '0'; bar.appendChild(nn); c.appendChild(bar); cols.appendChild(c);
+      var showLab = rangeDays <= 7 || last || (rangeDays <= 14 ? i % 2 === (dayPasses.length - 1) % 2 : (dayPasses.length - 1 - i) % 7 === 0);
+      labs.appendChild(el('span', last ? 'today' : '', !showLab ? '' : last ? t('Today') : rangeDays <= 7 ? fmtDate(d.start, { weekday: 'short' }) : fmtDate(d.start, { day: 'numeric' })));
+    });
+    pd.appendChild(cols); pd.appendChild(labs); tiles.appendChild(pd);
+  }
+
+  if (rangePasses.length) {
+    var su = el('div', 'tile wide');
+    // Exact amounts fall into the nearest preset: small 100, medium 250, large 400 ml.
+    var sc = { small: 0, medium: 0, large: 0, none: 0 };
+    rangePasses.forEach(function (x) {
+      if (!x.size) sc.none++;
+      else if (sc[x.size.label] !== undefined && x.size.label !== 'none') sc[x.size.label]++;
+      else sc[x.size.ml < 175 ? 'small' : x.size.ml < 325 ? 'medium' : 'large']++;
+    });
+    var about = function (i) { return t('about {v}', { v: fmtVol(PRESETS.pass[i][1]) }); };
+    var sizeNote = vols.length ? t('Largest {a} · average {b}', { a: fmtVol(Math.max.apply(null, vols)), b: fmtVol(vols.reduce(function (a, b) { return a + b; }, 0) / vols.length) }) : '';
+    var sizeRows = [[t('Small'), about(0), sc.small, '#ffe486'], [t('Medium'), about(1), sc.medium, 'var(--pass)'], [t('Large'), about(2), sc.large, '#b38e00']];
+    if (sc.none) sizeRows.push([t('No size'), '', sc.none, '#c9d8e0']);
+    barList(su, t('Size'), sizeNote, sizeRows);
+    var uc = { none: 0, mild: 0, strong: 0, cantwait: 0, na: 0 };
+    rangePasses.forEach(function (x) { uc[x.urgency && uc[x.urgency] !== undefined ? x.urgency : 'na']++; });
+    if (settings.showUrgency || uc.na < rangePasses.length) {
+      var rated = rangePasses.length - uc.na, urgent = uc.strong + uc.cantwait;
+      var urgRows = [[t('None'), '', uc.none, '#c9d8e0'], [t('Mild'), '', uc.mild, 'var(--pass)'], [t('Strong'), '', uc.strong, '#b38e00'], [t('Couldn’t wait'), '', uc.cantwait, 'var(--danger)']];
+      if (uc.na) urgRows.push([t('Not recorded'), '', uc.na, '#e3edf2']);
+      barList(su, t('Urgency'), rated ? t('{a} of {b} strong or couldn’t wait', { a: urgent, b: rated }) : '', urgRows);
+    }
+    tiles.appendChild(su);
+  }
+
+  // Bowel
   var solidsR = rangeItems.filter(function (x) { return x.type === 'solid'; });
   if (settings.trackSolid || solidsR.length) {
-    var sdt = tile(multi ? t('Solids, per day') : t('Solids'), true), sdv = el('div', 'n');
-    sdv.textContent = !solidsR.length ? '–' : multi ? t('{n} a day', { n: num(solidsR.length / rangeDays) }) : String(solidsR.length);
-    sdt.appendChild(sdv);
-    if (solidsR.length > 1) { var sgp = []; for (var q = 1; q < solidsR.length; q++) sgp.push(solidsR[q].t - solidsR[q - 1].t); sdt.appendChild(el('div', 'sub', t('Typical gap {d}', { d: fmtDur(median(sgp)) }))); }
-    else if (solidsR.length) sdt.appendChild(el('div', 'sub', t('Last {ago}', { ago: agoText(solidsR[0].t) })));
+    var lastSolid = s.filter(function (x) { return x.type === 'solid'; }).pop();
+    section(t('Bowel'), 'var(--solid)', lastSolid ? t('Last {ago}', { ago: agoText(lastSolid.t) }) : '');
+    var bw = el('div', 'tile wide');
+    var top = el('div', 'bowtop'); top.appendChild(el('span', 'n', String(solidsR.length)));
+    var bits = [];
+    if (multi) bits.push(t('on {a} of {b} days', { a: dayPasses.filter(function (d) { return d.solid; }).length, b: rangeDays }));
+    if (solidsR.length > 1) { var sgp = []; for (var q = 1; q < solidsR.length; q++) sgp.push(solidsR[q].t - solidsR[q - 1].t); bits.push(t('Typical gap {d}', { d: fmtDur(median(sgp)) })); }
+    if (bits.length) top.appendChild(el('span', 'sub', bits.join(' · ')));
+    bw.appendChild(top);
+    if (multi) {
+      var wk = el('div', 'bdays' + (rangeDays > 7 ? ' many' : ''));
+      wk.setAttribute('role', 'img');
+      wk.setAttribute('aria-label', t('on {a} of {b} days', { a: dayPasses.filter(function (d) { return d.solid; }).length, b: rangeDays }));
+      dayPasses.forEach(function (d, i) {
+        var c = el('div'), dot = el('i', d.solid ? 'y' : ''); c.appendChild(dot);
+        if (rangeDays <= 7) c.appendChild(document.createTextNode(i === dayPasses.length - 1 ? t('Today') : fmtDate(d.start, { weekday: 'short' })));
+        if (i === dayPasses.length - 1) c.className = 'today';
+        wk.appendChild(c);
+      });
+      bw.appendChild(wk);
+    }
     var bc = [0, 0, 0, 0, 0, 0, 0, 0];
     solidsR.forEach(function (x) { if (x.bristol >= 1 && x.bristol <= 7) bc[x.bristol]++; else bc[0]++; });
-    if (bc.reduce(function (a, b) { return a + b; }, 0) - bc[0] > 0) {
-      var BR = ['#e8d9cc', '#d9bfa8', '#c5a283', '#a98160', '#8a6a4f', '#6e533d', '#4f3b2b'], parts = [], bl = [];
-      for (var z = 1; z <= 7; z++) if (bc[z]) { parts.push({ n: bc[z], color: BR[z - 1], ink: z <= 4 ? '#2a1d12' : '#ffffff', text: String(z) }); bl.push(t('Type {z}: {n}', { z: z, n: bc[z] })); }
-      if (bc[0]) { parts.push({ n: bc[0], color: '#e3edf2', ink: '#526c7b', text: '–' }); bl.push(t('Not recorded: {n}', { n: bc[0] })); }
-      sdt.appendChild(segBar(parts)); sdt.appendChild(el('div', 'sub', t('Bristol scale.') + ' ' + bl.join(' · ')));
+    if (solidsR.length - bc[0] > 0) {
+      bw.appendChild(el('div', 'blh', t('Stool type (Bristol 1 to 7)')));
+      var BR = ['#e8d9cc', '#d9bfa8', '#c5a283', '#a98160', '#8a6a4f', '#6e533d', '#4f3b2b'], peak = Math.max.apply(null, bc.slice(1));
+      var scale = el('div', 'bristol'), zone = el('div', 'bzone'); zone.appendChild(el('span', '', t('typical'))); scale.appendChild(zone);
+      for (var z = 1; z <= 7; z++) {
+        var col = el('div', 'bcol'), stack = el('div', 'bstack');
+        col.setAttribute('aria-label', t('Type {z}: {n}', { z: z, n: bc[z] })); col.setAttribute('role', 'img');
+        if (peak <= 4) for (var j = 0; j < bc[z]; j++) stack.appendChild(el('b'));
+        else if (bc[z]) { var tall = el('b', 'tall'); tall.style.height = 'max(4px, calc(' + (bc[z] / peak * 100) + '% - 18px))'; stack.appendChild(el('span', 'bn', String(bc[z]))); stack.appendChild(tall); }
+        col.appendChild(stack);
+        var cell = el('div', 'bcell'); cell.style.background = BR[z - 1]; col.appendChild(cell); col.appendChild(el('span', 'bz', String(z)));
+        scale.appendChild(col);
+      }
+      bw.appendChild(scale);
+      var ends = el('div', 'bends'); ends.appendChild(el('span', '', t('hard'))); ends.appendChild(el('span', '', t('liquid'))); bw.appendChild(ends);
+      if (bc[0]) bw.appendChild(el('div', 'sub', t('Not recorded: {n}', { n: bc[0] })));
     }
-    if (cmp && cmp.prev.solids) sdt.appendChild(el('div', 'sub', signed(cmp.cur.solids - cmp.prev.solids, String) + ' ' + cmp.label));
-    tiles.appendChild(sdt);
-  }
-
-  var st = tile(t('Pass sizes'), true), sc = { small: 0, medium: 0, large: 0, exact: 0, none: 0 };
-  rangeItems.forEach(function (x) { if (x.type !== 'pass') return; if (!x.size) sc.none++; else sc[sc[x.size.label] !== undefined ? x.size.label : 'exact']++; });
-  if (!(sc.small + sc.medium + sc.large + sc.exact + sc.none)) st.appendChild(el('div', 'empty2', t('No passes in this range.')));
-  else st.appendChild(segBar([
-    { n: sc.small, color: '#ffeb99', ink: '#3d3000', text: t('Small') + ' ' + sc.small }, { n: sc.medium, color: '#f6c800', ink: '#3d3000', text: t('Medium') + ' ' + sc.medium },
-    { n: sc.large, color: '#c79f00', ink: '#2a2100', text: t('Large') + ' ' + sc.large }, { n: sc.exact, color: '#8f6f00', ink: '#ffffff', text: t('Exact') + ' ' + sc.exact },
-    { n: sc.none, color: '#e3edf2', ink: '#526c7b', text: t('No size') + ' ' + sc.none }]));
-  tiles.appendChild(st);
-
-  if (settings.showUrgency) {
-    var ut = tile(t('Urgency of passes'), true), uc = { none: 0, mild: 0, strong: 0, cantwait: 0, na: 0 };
-    rangeItems.forEach(function (x) { if (x.type !== 'pass') return; uc[x.urgency && uc[x.urgency] !== undefined ? x.urgency : 'na']++; });
-    var utot = uc.none + uc.mild + uc.strong + uc.cantwait + uc.na;
-    if (!utot) ut.appendChild(el('div', 'empty2', t('No passes in this range.')));
-    else {
-      ut.appendChild(segBar([
-        { n: uc.none, color: '#fff6cc', ink: '#3d3000', text: String(uc.none) }, { n: uc.mild, color: '#ffeb99', ink: '#3d3000', text: String(uc.mild) },
-        { n: uc.strong, color: '#c79f00', ink: '#2a2100', text: String(uc.strong) }, { n: uc.cantwait, color: '#8f6f00', ink: '#ffffff', text: String(uc.cantwait) },
-        { n: uc.na, color: '#e3edf2', ink: '#526c7b', text: String(uc.na) }]));
-      var ul = []; [['none', 'None'], ['mild', 'Mild'], ['strong', 'Strong'], ['cantwait', 'Couldn’t wait'], ['na', 'Not recorded']].forEach(function (q) { if (uc[q[0]]) ul.push(t(q[1]) + ' ' + uc[q[0]]); });
-      ut.appendChild(el('div', 'sub', ul.join(' · ')));
-    }
-    tiles.appendChild(ut);
-  }
-
-  if (settings.showKind) {
-    var kt = tile(t('Drink types'), true), kn = {}, kv = {}, anyMl = false;
-    rangeItems.forEach(function (x) { if (x.type !== 'drink') return; var key = x.kind || 'na'; kn[key] = (kn[key] || 0) + 1; if (x.size) { kv[key] = (kv[key] || 0) + x.size.ml; anyMl = true; } });
-    var KC = { water: ['#1572b5', '#ffffff'], teacoffee: ['#7bb8e0', '#0e2a3b'], alcohol: ['#0e2a3b', '#ffffff'], other: ['#a9bcc7', '#0e2a3b'], na: ['#e3edf2', '#526c7b'] };
-    var keys = ['water', 'teacoffee', 'alcohol', 'other', 'na'].filter(function (q) { return kn[q]; });
-    if (!keys.length) kt.appendChild(el('div', 'empty2', t('No drinks in this range.')));
-    else {
-      kt.appendChild(segBar(keys.map(function (q) { return { n: anyMl ? (kv[q] || 0) : kn[q], color: KC[q][0], ink: KC[q][1], text: q === 'na' ? '' : t(labelOf(KINDS, q)) }; })));
-      kt.appendChild(el('div', 'sub', keys.map(function (q) { return (q === 'na' ? t('Not recorded') : t(labelOf(KINDS, q))) + ' ' + (kv[q] ? fmtVol(kv[q]) : kn[q] + '×'); }).join(' · ')));
-    }
-    tiles.appendChild(kt);
+    if (cmp && cmp.prev.solids) bw.appendChild(el('div', 'sub', signed(cmp.cur.solids - cmp.prev.solids, String) + ' ' + cmp.label));
+    tiles.appendChild(bw);
   }
 }
 
