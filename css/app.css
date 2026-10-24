@@ -98,6 +98,7 @@ svg.ic { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-wid
 .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .dot.drink { background: var(--drink); } .dot.pass { background: var(--pass); } .dot.solid { background: var(--solid); }
 .time { font-weight: 600; min-width: 4.2ch; font-variant-numeric: tabular-nums; }
+.clock12 .time { min-width: 7.6ch; }
 .what { flex: 1; min-width: 0; font-size: .95rem; }
 .what.soft { color: var(--muted); }
 .what small { display: block; color: var(--muted); font-size: .8rem; }

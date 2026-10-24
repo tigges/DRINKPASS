@@ -1,6 +1,6 @@
 import {
   OZ, H, DAY, PRESETS, URG, KINDS, KINDS_SHORT, NAMES, BRISTOL,
-  isSleep, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime, fmtDur, agoText, toLocalInput,
+  isSleep, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime as fmtTimeIn, fmtHour, fmtDur, agoText, toLocalInput,
   sortEntries, between, sleepModel, sanitizeSettings, migrateLog, DEFAULT_SETTINGS, SCHEMA, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
   fmtVol as fmtVolIn
   , fvSummary, drinkReminder
@@ -79,6 +79,7 @@ function backupStatus() {
 function markBackup() { bk.last = Date.now(); bk.done = Date.now(); bk.snooze = 0; saveBk(); updateNudge(); backupStatus(); }
 
 function fmtVol(ml) { return fmtVolIn(ml, settings.unit); }
+function fmtTime(ms) { return fmtTimeIn(ms, settings.clock); }
 // Every change to `log` goes through save() or loadLog(), which clear these caches.
 var sortedCache = null, gapsCache = null;
 function touch() { sortedCache = null; gapsCache = null; }
@@ -515,7 +516,7 @@ function renderInsights() {
     label('24 h ago', 7); label('Now', 95);
     for (var tt = Math.ceil(start / H) * H; tt < now; tt += H) {
       var dt = new Date(tt);
-      if (dt.getHours() % 6 === 0) { var ps = (tt - start) / DAY * 100; if (ps > 20 && ps < 85) label(pad(dt.getHours()) + ':00', ps); }
+      if (dt.getHours() % 6 === 0) { var ps = (tt - start) / DAY * 100; if (ps > 20 && ps < 85) label(fmtHour(dt.getHours(), settings.clock), ps); }
     }
   } else {
     lab.style.display = ''; $('axis').hidden = false; tl.hidden = true;
@@ -700,7 +701,7 @@ function buildDiaryChart(box, data) {
     });
   });
   mid.appendChild(plot);
-  var ax = el('div', 'axis'); ['00', '06', '12', '18', '24'].forEach(function (t) { ax.appendChild(el('span', '', t)); }); mid.appendChild(ax);
+  var ax = el('div', 'axis'); (settings.clock === '12' ? ['12a', '6a', '12p', '6p', '12a'] : ['00', '06', '12', '18', '24']).forEach(function (t) { ax.appendChild(el('span', '', t)); }); mid.appendChild(ax);
   wrap.appendChild(lab); wrap.appendChild(mid); box.appendChild(wrap);
   var lg = el('div', 'legend');
   function li(cls, style, txt) { var sp = el('span'), i = el('i', cls); if (style) i.style.cssText = style; sp.appendChild(i); sp.appendChild(document.createTextNode(txt)); lg.appendChild(sp); }
@@ -795,6 +796,7 @@ function saveFile(name, data, msgEl, onOk) {
 function stamp() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 
 function render() {
+  document.body.classList.toggle('clock12', settings.clock === '12');
   refreshSleep(); syncSleepBtn(); renderStats(); renderList(); updateNudge(); checkReminder();
   if (!$('insightsSheet').hidden) renderInsights();
   if (!$('reportSheet').hidden) renderReport();
@@ -903,6 +905,9 @@ $('printBtn').addEventListener('click', function () {
 });
 each('[data-unit]', function (b) {
   b.addEventListener('click', function () { settings.unit = b.getAttribute('data-unit'); save(); syncSettings(); if (sheetId) closeSheet(); render(); });
+});
+each('[data-clock]', function (b) {
+  b.addEventListener('click', function () { settings.clock = b.getAttribute('data-clock'); save(); syncSettings(); render(); });
 });
 each('[data-toggle]', function (b) {
   b.addEventListener('click', function () {
@@ -1108,6 +1113,7 @@ window.addEventListener('pagehide', flushNote);
 
 function syncSettings() {
   each('[data-unit]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-unit') === settings.unit ? 'true' : 'false'); });
+  each('[data-clock]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-clock') === settings.clock ? 'true' : 'false'); });
   each('[data-remind]', function (b) { b.setAttribute('aria-pressed', +b.getAttribute('data-remind') === settings.remindAfter ? 'true' : 'false'); });
   $('remindNotify').setAttribute('aria-pressed', settings.remindNotify ? 'true' : 'false');
   each('[data-toggle]', function (b) { var k = b.getAttribute('data-toggle'); b.setAttribute('aria-pressed', (k === 'askSize' ? settings.askSize !== false : !!settings[k]) ? 'true' : 'false'); });

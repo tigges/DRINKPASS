@@ -77,3 +77,27 @@ test('the clinician summary includes a frequency-volume table', async ({ page })
   await expect(page.locator('#reportFv caption')).toHaveText('Frequency and volume');
   await expect(row.locator('td')).toHaveText(['650\u00a0ml', '3 (0)', '500\u00a0ml', '–', '400\u00a0ml', '250\u00a0ml']);
 });
+
+test('times use a 24-hour clock by default and can switch to 12-hour', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-01-15T21:00:00Z'));
+  await page.goto('./');
+  await restoreSample(page);
+  await expect(page.locator('[data-clock="24"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('[data-close="settingsSheet"]').click();
+  await page.locator('[data-close="insightsSheet"]').click();
+  const first = page.locator('#list .row .time').first();
+  await expect(first).toHaveText('15:00');
+
+  await openSettings(page);
+  await page.locator('[data-clock="12"]').click();
+  await page.locator('[data-close="settingsSheet"]').click();
+  await page.locator('[data-close="insightsSheet"]').click();
+  await expect(first).toHaveText('3:00 pm');
+
+  await page.reload();
+  await expect(first).toHaveText('3:00 pm');
+  await page.locator('#openInsights').click();
+  await page.locator('#openReport').click();
+  await page.locator('[data-days="1"]').click();
+  await expect(page.locator('#reportTable')).toContainText('8:00 am');
+});
