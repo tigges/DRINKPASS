@@ -1,12 +1,13 @@
 import {
   OZ, H, DAY, PRESETS, URG, KINDS, KINDS_SHORT, NAMES, BRISTOL,
-  isSleep, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime as fmtTimeIn, fmtHour, fmtDur, agoText, toLocalInput,
-  sortEntries, between, sleepModel, sanitizeSettings, migrateLog, DEFAULT_SETTINGS, SCHEMA, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
+  isSleep, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime as fmtTimeIn, fmtHour, fmtDur as fmtDurIn, agoText as agoTextIn, toLocalInput,
+  sortEntries, isoDate, between, sleepModel, sanitizeSettings, migrateLog, DEFAULT_SETTINGS, SCHEMA, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
   fmtVol as fmtVolIn
   , fvSummary, drinkReminder
 } from './core.js';
 import { toFhirBundle } from './fhir.js';
 import { encryptBackup, decryptBackup, isEncryptedBackup } from './crypto.js';
+import { t, tn, k, setLang, detectLang, isLang, currentLang, currentLocale, translatePage } from './i18n.js';
 
 var KEY = 'drink-pass-log-v1', SKEY = 'drink-pass-settings-v1', BKEY = 'drink-pass-backup-v1', TKEY = 'drink-pass-trash-v1', MKEY = 'drink-pass-schema';
 var NS = 'http://www.w3.org/2000/svg';
@@ -71,15 +72,23 @@ function updateNudge() {
   if (bk.done) due = now - bk.done > 3 * DAY; else due = now - bk.last > DAY;
   var show = storageOk && log.length > 0 && due && now > bk.snooze;
   $('nudge').hidden = !show;
-  if (show) $('nudgeText').textContent = (bk.done ? 'It’s been ' + Math.floor((now - bk.done) / DAY) + ' days since your last backup.' : 'You haven’t backed up yet.') + ' Entries only live in this browser.';
+  if (show) $('nudgeText').textContent = (bk.done ? tn(Math.floor((now - bk.done) / DAY), 'It’s been {n} day since your last backup.', 'It’s been {n} days since your last backup.') : t('You haven’t backed up yet.')) + ' ' + t('Entries only live in this browser.');
 }
 function backupStatus() {
-  $('lastBackup').textContent = bk.done ? 'Last backed up ' + agoText(bk.done) + '.' : 'Not backed up yet.';
+  $('lastBackup').textContent = bk.done ? t('Last backed up {ago}.', { ago: agoText(bk.done) }) : t('Not backed up yet.');
 }
 function markBackup() { bk.last = Date.now(); bk.done = Date.now(); bk.snooze = 0; saveBk(); updateNudge(); backupStatus(); }
 
-function fmtVol(ml) { return fmtVolIn(ml, settings.unit); }
+function fmtVol(ml) { return fmtVolIn(ml, settings.unit, currentLocale()); }
 function fmtTime(ms) { return fmtTimeIn(ms, settings.clock); }
+function fmtDur(ms) { return fmtDurIn(ms, t); }
+function agoText(ms) { return agoTextIn(ms, undefined, t); }
+function num(n) { return (Math.round(n * 10) / 10).toLocaleString(currentLocale()); }
+function fmtDate(ms, opts) { return new Date(ms).toLocaleDateString(currentLocale(), opts); }
+function name(type) { return t(NAMES[type]); }
+// German capitalises nouns, so labels are only lower-cased mid-sentence in the other languages.
+function low(s) { return currentLang() === 'de' ? s : s.toLowerCase(); }
+function nightTag(ms) { return isNight(ms) ? ' ' + t('(night)') : ''; }
 // Every change to `log` goes through save() or loadLog(), which clear these caches.
 var sortedCache = null, gapsCache = null;
 function touch() { sortedCache = null; gapsCache = null; }
@@ -97,7 +106,7 @@ function isAsleep() { return isAsleepAt(sleep, Date.now()); }
 function syncSleepBtn() {
   var a = isAsleep();
   $('sleepUse').setAttribute('href', a ? '#i-sun' : '#i-moon');
-  $('sleepBtn').setAttribute('aria-label', a ? 'Up for the day' : 'Going to bed');
+  $('sleepBtn').setAttribute('aria-label', a ? t('Up for the day') : t('Going to bed'));
 }
 
 function getWhen() {
@@ -110,10 +119,10 @@ function getWhen() {
   var t = d.getTime(); if (t > now) t -= DAY; return t;
 }
 function whenLabel() {
-  if (whenMode === 'now') return 'Now';
-  if (whenMode === '5') return '5 min ago';
-  if (whenMode === '15') return '15 min ago';
-  return $('pickTime').value ? 'At ' + $('pickTime').value : 'Pick a time';
+  if (whenMode === 'now') return t('Now');
+  if (whenMode === '5') return t('5 min ago');
+  if (whenMode === '15') return t('15 min ago');
+  return $('pickTime').value ? t('At {time}', { time: fmtTime(getWhen()) }) : t('Pick a time');
 }
 function toggleWhen(open) { $('whenOpts').hidden = !open; $('whenPill').setAttribute('aria-expanded', open ? 'true' : 'false'); }
 function setWhen(mode) {
@@ -135,12 +144,12 @@ function ripple(btn, ev) {
 
 function addEntry(type, ev) {
   var tapNow = Date.now();
-  if (lastTap[type] && tapNow - lastTap[type] < 1500) { if (barId) $('barMsg').textContent = 'Already logged. Tap Undo if that was a mistake.'; return; }
+  if (lastTap[type] && tapNow - lastTap[type] < 1500) { if (barId) $('barMsg').textContent = t('Already logged. Tap Undo if that was a mistake.'); return; }
   lastTap[type] = tapNow; barStash = null; tryPersist();
-  var t = getWhen();
-  var entry = { id: Date.now() + '-' + Math.random().toString(36).slice(2, 7), type: type, t: t };
+  var at = getWhen();
+  var entry = { id: Date.now() + '-' + Math.random().toString(36).slice(2, 7), type: type, t: at };
   log.push(entry); save();
-  dayOffset = Math.min(0, Math.round((startOfDay(t) - startOfDay(Date.now())) / DAY));
+  dayOffset = Math.min(0, Math.round((startOfDay(at) - startOfDay(Date.now())) / DAY));
   setWhen('now');
   render();
   showBar(entry);
@@ -163,20 +172,20 @@ function restoreEntry(entry, mate) {
 }
 function renderTrash() {
   var box = $('trashList'); box.textContent = '';
-  if (!trash.length) { box.appendChild(el('p', 'hint', 'Nothing removed recently. Removed entries stay here for 30 days.')); return; }
+  if (!trash.length) { box.appendChild(el('p', 'hint', t('Nothing removed recently. Removed entries stay here for 30 days.'))); return; }
   trash.slice(0, 10).forEach(function (q) {
-    var r = el('div', 'trashrow'); r.appendChild(el('span', '', (q.partner ? 'Pass and solid' : NAMES[q.entry.type]) + ' · ' + fmtWhen(q.entry.t)));
-    var b = el('button', 'btn', 'Restore'); b.type = 'button'; b.addEventListener('click', function () { restoreEntry(q.entry, q.partner); }); r.appendChild(b); box.appendChild(r);
+    var r = el('div', 'trashrow'); r.appendChild(el('span', '', (q.partner ? t('Pass and solid') : name(q.entry.type)) + ' · ' + fmtWhen(q.entry.t)));
+    var b = el('button', 'btn', t('Restore')); b.type = 'button'; b.addEventListener('click', function () { restoreEntry(q.entry, q.partner); }); r.appendChild(b); box.appendChild(r);
   });
 }
 
 function gaps() { if (!gapsCache) gapsCache = computeGaps(sorted()); return gapsCache; }
 function gapLine(x, g) {
-  if (x.type === 'solid') return (g.solid !== null && g.solid !== undefined && g.solid < 3 * DAY) ? fmtDur(g.solid) + ' since last solid' : 'No solid in the previous 3 days';
-  if (x.type === 'pass') return (g.pass !== null && g.pass < DAY) ? fmtDur(g.pass) + ' after last pass' : 'No pass in the previous 24 h';
-  return (g.drink !== null && g.drink < DAY) ? fmtDur(g.drink) + ' since last drink' : 'No drink in the previous 24 h';
+  if (x.type === 'solid') return (g.solid !== null && g.solid !== undefined && g.solid < 3 * DAY) ? t('{d} since last solid', { d: fmtDur(g.solid) }) : t('No solid in the previous 3 days');
+  if (x.type === 'pass') return (g.pass !== null && g.pass < DAY) ? t('{d} after last pass', { d: fmtDur(g.pass) }) : t('No pass in the previous 24 h');
+  return (g.drink !== null && g.drink < DAY) ? t('{d} since last drink', { d: fmtDur(g.drink) }) : t('No drink in the previous 24 h');
 }
-function sizeText(x) { return x.size ? (x.size.label === 'exact' ? 'Exact' : cap(x.size.label)) + ' · ' + fmtVol(x.size.ml) : ''; }
+function sizeText(x) { return x.size ? (x.size.label === 'exact' ? t('Exact') : t(cap(x.size.label))) + ' · ' + fmtVol(x.size.ml) : ''; }
 function lastSize(type, exceptId) {
   var s = sorted().slice().reverse();
   for (var i = 0; i < s.length; i++) if (s[i].type === type && s[i].size && s[i].id !== exceptId) return s[i].size.ml;
@@ -184,24 +193,25 @@ function lastSize(type, exceptId) {
 }
 function sleptText(x) {
   var periods = sleep.periods;
-  for (var i = 0; i < periods.length; i++) if (periods[i][1] === x.t && !periods[i][2]) return 'Slept ' + fmtDur(periods[i][1] - periods[i][0]);
+  for (var i = 0; i < periods.length; i++) if (periods[i][1] === x.t && !periods[i][2]) return t('Slept {d}', { d: fmtDur(periods[i][1] - periods[i][0]) });
   return '';
 }
 function detailParts(x, g) {
   var p = [];
-  if (x.type === 'drink' && x.kind) p.push(labelOf(KINDS, x.kind));
+  if (x.type === 'drink' && x.kind) p.push(t(labelOf(KINDS, x.kind)));
   if (x.size) p.push(sizeText(x));
   p.push(gapLine(x, g));
-  if (x.type === 'solid' && x.bristol) p.push('Bristol ' + x.bristol);
-  if (x.urgency && x.urgency !== 'none') p.push('urgency: ' + labelOf(URG, x.urgency).toLowerCase());
+  if (x.type === 'solid' && x.bristol) p.push(t('Bristol {n}', { n: x.bristol }));
+  if (x.urgency && x.urgency !== 'none') p.push(urgText(x.urgency));
   if (x.note) p.push('note');
   return p;
 }
 
+function urgText(u) { return t('urgency: {u}', { u: low(t(labelOf(URG, u))) }); }
 function buildOptions(box, list, current, onPick) {
   box.textContent = '';
   list.forEach(function (u) {
-    var b = document.createElement('button'); b.type = 'button'; b.className = 'opt'; b.textContent = u[1];
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'opt'; b.textContent = t(u[1]);
     b.setAttribute('aria-pressed', current === u[0] ? 'true' : 'false');
     b.addEventListener('click', function () {
       var e = find(sheetId); if (!e) return;
@@ -221,13 +231,13 @@ function toggler(field) {
 function openSheet(entry, keepTime) {
   hideBar();
   sheetId = entry.id;
-  var sl = isSleep(entry), solid = entry.type === 'solid', label = NAMES[entry.type], g = (gaps()[entry.id]) || {};
-  $('sheetTitle').textContent = label + ' at ' + fmtTime(entry.t) + (entry.type === 'pass' && isNight(entry.t) ? ' (night)' : '');
+  var sl = isSleep(entry), solid = entry.type === 'solid', label = name(entry.type), g = (gaps()[entry.id]) || {};
+  $('sheetTitle').textContent = t('{what} at {time}', { what: label, time: fmtTime(entry.t) }) + (entry.type === 'pass' ? nightTag(entry.t) : '');
   var info = [];
   if (sl) { var sp = entry.type === 'wake' ? sleptText(entry) : ''; if (sp) info.push(sp); }
   else {
     info = detailParts(entry, g).filter(function (q) { return q !== 'note'; });
-    if (entry.type === 'pass' && g.drink !== null && g.drink < DAY) info.push(fmtDur(g.drink) + ' after last drink');
+    if (entry.type === 'pass' && g.drink !== null && g.drink < DAY) info.push(t('{d} after last drink', { d: fmtDur(g.drink) }));
   }
   $('sheetInfo').textContent = info.join(' · '); $('sheetInfo').hidden = !info.length;
 
@@ -241,7 +251,7 @@ function openSheet(entry, keepTime) {
     PRESETS[entry.type].forEach(function (p) {
       var b = document.createElement('button'); b.type = 'button';
       b.setAttribute('aria-pressed', entry.size && entry.size.label === p[0].toLowerCase() ? 'true' : 'false');
-      b.appendChild(document.createTextNode(p[0]));
+      b.appendChild(document.createTextNode(t(p[0])));
       var sm = document.createElement('small'); sm.textContent = fmtVol(p[1]); b.appendChild(sm);
       b.addEventListener('click', function () { setSize(p[0].toLowerCase(), p[1]); });
       box.appendChild(b);
@@ -253,7 +263,7 @@ function openSheet(entry, keepTime) {
   if (solid && settings.showBristol) buildOptions($('bristolBtns'), BRISTOL, entry.bristol, toggler('bristol'));
   if (!sl) {
     $('noteInput').value = entry.note || '';
-    $('noteRow').hidden = !entry.note; $('noteToggleText').textContent = entry.note ? 'Edit note' : 'Add a note';
+    $('noteRow').hidden = !entry.note; $('noteToggleText').textContent = entry.note ? t('Edit note') : t('Add a note');
   }
   $('sheetRemove').hidden = false;
   if ($('sheet').hidden) openDialog('sheet');
@@ -290,23 +300,23 @@ function answered(e, k) { return k === 'size' ? !!e.size : k === 'kind' ? !!e.ki
 function barSummary(e) {
   var p = [];
   if (e.size) p.push(sizeText(e));
-  if (e.kind) p.push(labelOf(KINDS, e.kind));
-  if (bristolOf(e)) p.push('Bristol ' + bristolOf(e));
-  if (e.urgency) p.push(labelOf(URG, e.urgency));
+  if (e.kind) p.push(t(labelOf(KINDS, e.kind)));
+  if (bristolOf(e)) p.push(t('Bristol {n}', { n: bristolOf(e) }));
+  if (e.urgency) p.push(t(labelOf(URG, e.urgency)));
   return p.join(' · ');
 }
 function checkBar(e, first) {
   var asked = rowsAsked(e);
   if (!asked.length) { armBar(4000); return; }
   var all = asked.every(function (k) { return answered(e, k); });
-  if (all && !first) { $('barMsg').textContent = 'Saved · ' + barSummary(e); armBar(1500); }
+  if (all && !first) { $('barMsg').textContent = t('Saved') + ' · ' + barSummary(e); armBar(1500); }
   else armBar(all ? 3000 : 10000);
 }
 function barGrid(cls) { var g = document.createElement('div'); g.className = 'barchips' + (cls ? ' ' + cls : ''); return g; }
 function sizeRow(entry) {
   var grid = barGrid(), lm = lastSize(entry.type, entry.id);
-  var list = PRESETS[entry.type].map(function (p) { return { label: p[0].toLowerCase(), name: p[0], ml: p[1], last: lm !== null && Math.round(lm) === p[1] }; });
-  if (lm !== null && !list.some(function (x) { return x.last; })) list.push({ label: 'exact', name: 'Last', ml: lm, last: true });
+  var list = PRESETS[entry.type].map(function (p) { return { label: p[0].toLowerCase(), name: t(p[0]), ml: p[1], last: lm !== null && Math.round(lm) === p[1] }; });
+  if (lm !== null && !list.some(function (x) { return x.last; })) list.push({ label: 'exact', name: t('Last'), ml: lm, last: true });
   grid.style.gridTemplateColumns = 'repeat(' + list.length + ', minmax(0, 1fr))';
   function paint() {
     var e = find(barId);
@@ -320,7 +330,7 @@ function sizeRow(entry) {
     var sm = document.createElement('small');
     if (c.last) sm.appendChild(svgIcon('i-repeat', 11));
     sm.appendChild(document.createTextNode(fmtVol(c.ml))); b.appendChild(sm);
-    if (c.last) b.setAttribute('aria-label', c.name + ', ' + fmtVol(c.ml) + ', same as last time');
+    if (c.last) b.setAttribute('aria-label', t('{name}, {vol}, same as last time', { name: c.name, vol: fmtVol(c.ml) }));
     b.addEventListener('click', function () {
       var e = find(barId); if (!e) return;
       e.size = { label: c.label, ml: c.ml }; save(); render(); paint(); checkBar(e, false);
@@ -335,7 +345,7 @@ function optRow(label, list, field, entry, cols, targets) {
   function tg() { if (targets) return targets().filter(Boolean); var e = find(barId); return e ? [e] : []; }
   function paint() { var t = tg()[0]; Array.prototype.forEach.call(grid.children, function (b, i) { b.setAttribute('aria-pressed', t && t[field] === list[i][0] ? 'true' : 'false'); }); }
   list.forEach(function (u) {
-    var b = document.createElement('button'); b.type = 'button'; b.textContent = u[1];
+    var b = document.createElement('button'); b.type = 'button'; b.textContent = t(u[1]);
     b.addEventListener('click', function () {
       var es = tg(); if (!es.length) return;
       var clear = es[0][field] === u[0];
@@ -361,9 +371,9 @@ function setWhat(mode) {
   save(); render(); showBar(e, true);
 }
 function whatRow() {
-  var wrap = document.createElement('div'), l = document.createElement('div'); l.className = 'barl'; l.textContent = 'What passed';
+  var wrap = document.createElement('div'), l = document.createElement('div'); l.className = 'barl'; l.textContent = t('What passed');
   var grid = barGrid('opts'); grid.style.gridTemplateColumns = 'repeat(3, minmax(0, 1fr))';
-  var modes = [['water', 'Water'], ['solid', 'Solid'], ['both', 'Both']];
+  var modes = [['water', t('passed|Water')], ['solid', t('Solid')], ['both', t('Both')]];
   function paint() { var e = find(barId), m = e ? whatMode(e) : 'water'; Array.prototype.forEach.call(grid.children, function (b, i) { b.setAttribute('aria-pressed', modes[i][0] === m ? 'true' : 'false'); }); }
   modes.forEach(function (q) { var b = document.createElement('button'); b.type = 'button'; b.textContent = q[1]; b.addEventListener('click', function () { setWhat(q[0]); }); grid.appendChild(b); });
   paint(); wrap.appendChild(l); wrap.appendChild(grid); return wrap;
@@ -373,19 +383,19 @@ function showBar(entry, rebuilt) {
   var asked = rowsAsked(entry), rows = $('barRows'); rows.textContent = '';
   if (!rebuilt && entry.type === 'drink' && settings.showKind && !entry.kind) { var lk = lastKind(entry.id); if (lk) { entry.kind = lk; save(); renderList(); } }
   var m = (entry.type === 'pass' || entry.type === 'solid') ? whatMode(entry) : null;
-  $('barMsg').textContent = (m === 'both' ? 'Pass and solid' : NAMES[entry.type]) + ' logged · ' + fmtTime(entry.t);
+  $('barMsg').textContent = t('{what} logged · {time}', { what: m === 'both' ? t('Pass and solid') : name(entry.type), time: fmtTime(entry.t) });
   if (settings.trackSolid && m) rows.appendChild(whatRow());
   if (asked.indexOf('size') > -1) rows.appendChild(sizeRow(entry));
-  if (asked.indexOf('kind') > -1) rows.appendChild(optRow('Type', KINDS_SHORT, 'kind', entry));
-  if (asked.indexOf('urg') > -1) rows.appendChild(optRow('Urgency', URG, 'urgency', entry, 4, m === 'both' ? function () { return [find(barId), partner(find(barId))]; } : null));
-  if (asked.indexOf('bristol') > -1) rows.appendChild(optRow('Stool type (Bristol 1 to 7)', BRISTOL, 'bristol', entry, 7, m === 'both' ? function () { return [partner(find(barId))]; } : null));
+  if (asked.indexOf('kind') > -1) rows.appendChild(optRow(t('Type'), KINDS_SHORT, 'kind', entry));
+  if (asked.indexOf('urg') > -1) rows.appendChild(optRow(t('Urgency'), URG, 'urgency', entry, 4, m === 'both' ? function () { return [find(barId), partner(find(barId))]; } : null));
+  if (asked.indexOf('bristol') > -1) rows.appendChild(optRow(t('Stool type (Bristol 1 to 7)'), BRISTOL, 'bristol', entry, 7, m === 'both' ? function () { return [partner(find(barId))]; } : null));
   $('bar').hidden = false;
   checkBar(entry, true);
 }
 
 function showRemovedBar(e, mate) {
   barId = null; barRestore = { entry: e, partner: mate }; $('barRows').textContent = '';
-  $('barMsg').textContent = 'Removed · ' + (mate ? 'Pass and solid' : NAMES[e.type]) + ' at ' + fmtTime(e.t); $('barMore').hidden = true;
+  $('barMsg').textContent = t('Removed · {what} at {time}', { what: mate ? t('Pass and solid') : name(e.type), time: fmtTime(e.t) }); $('barMore').hidden = true;
   $('bar').hidden = false; armBar(6000);
 }
 function sum(a) { var t = 0, c = 0; a.forEach(function (x) { if (x.size) { t += x.size.ml; c++; } }); return [t, c]; }
@@ -393,14 +403,14 @@ function renderStats() {
   var s = sorted();
   var ld = s.filter(function (x) { return x.type === 'drink'; }).pop();
   var lp = s.filter(function (x) { return x.type === 'pass'; }).pop();
-  $('drinkSub').textContent = ld ? cap(agoText(ld.t)) : 'Not yet';
-  $('passSub').textContent = lp ? cap(agoText(lp.t)) : 'Not yet';
+  $('drinkSub').textContent = ld ? cap(agoText(ld.t)) : t('Not yet');
+  $('passSub').textContent = lp ? cap(agoText(lp.t)) : t('Not yet');
 }
 
 var ROW_H = 56, MORE_H = 46;
 function fmtWhen(ms) {
-  var d = new Date(ms), t = fmtTime(ms);
-  return startOfDay(ms) === startOfDay(Date.now()) ? t : d.toLocaleDateString([], { weekday: 'short' }) + ' ' + t;
+  var tm = fmtTime(ms);
+  return startOfDay(ms) === startOfDay(Date.now()) ? tm : fmtDate(ms, { weekday: 'short' }) + ' ' + tm;
 }
 function buildRow(x, info, withDay) {
   var sl = isSleep(x);
@@ -410,19 +420,19 @@ function buildRow(x, info, withDay) {
   else { var dot = document.createElement('span'); dot.className = 'dot ' + x.type + (x.size || x.type === 'solid' ? '' : ' ns'); mk.appendChild(dot); }
   var tm = document.createElement('span'); tm.className = 'time'; tm.textContent = withDay ? fmtWhen(x.t) : fmtTime(x.t);
   var wh = document.createElement('span'); wh.className = 'what' + (sl ? ' soft' : '');
-  wh.appendChild(document.createTextNode(NAMES[x.type] + (x.type === 'pass' && isNight(x.t) ? ' (night)' : '')));
-  function tag(t) { var sp = document.createElement('span'); sp.className = 'tag'; sp.textContent = t; wh.appendChild(sp); }
-  if (x.type === 'drink' && x.kind) tag(labelOf(KINDS, x.kind));
-  if ((x.type === 'pass' || x.type === 'solid') && x.urgency && x.urgency !== 'none') tag(labelOf(URG, x.urgency));
-  if (x.type === 'solid' && x.bristol) tag('Bristol ' + x.bristol);
-  if (x.note) tag('Note');
+  wh.appendChild(document.createTextNode(name(x.type) + (x.type === 'pass' ? nightTag(x.t) : '')));
+  function tag(txt) { var sp = document.createElement('span'); sp.className = 'tag'; sp.textContent = txt; wh.appendChild(sp); }
+  if (x.type === 'drink' && x.kind) tag(t(labelOf(KINDS, x.kind)));
+  if ((x.type === 'pass' || x.type === 'solid') && x.urgency && x.urgency !== 'none') tag(t(labelOf(URG, x.urgency)));
+  if (x.type === 'solid' && x.bristol) tag(t('Bristol {n}', { n: x.bristol }));
+  if (x.note) tag(t('Note'));
   var sm = null;
   if (sl) { var st = x.type === 'wake' ? sleptText(x) : ''; if (st) { sm = document.createElement('small'); sm.textContent = st; } }
   else {
     sm = document.createElement('small');
     if (x.type === 'solid') sm.textContent = gapLine(x, info[x.id]);
     else if (x.size) sm.textContent = sizeText(x) + ' · ' + gapLine(x, info[x.id]);
-    else { var a = document.createElement('span'); a.className = 'addsize'; a.textContent = 'Add size'; sm.appendChild(a); sm.appendChild(document.createTextNode(' · ' + gapLine(x, info[x.id]))); }
+    else { var a = document.createElement('span'); a.className = 'addsize'; a.textContent = t('Add size'); sm.appendChild(a); sm.appendChild(document.createTextNode(' · ' + gapLine(x, info[x.id]))); }
   }
   if (sm) wh.appendChild(sm);
   b.appendChild(mk); b.appendChild(tm); b.appendChild(wh);
@@ -433,28 +443,28 @@ function buildRow(x, info, withDay) {
 function renderLatest() {
   var wrap = $('list'), s = sorted().slice().reverse(), info = gaps();
   var today = startOfDay(Date.now());
-  $('todayCount').textContent = s.filter(function (x) { return x.t >= today; }).length + ' today';
+  $('todayCount').textContent = t('{n} today', { n: s.filter(function (x) { return x.t >= today; }).length });
   wrap.textContent = '';
   if (!s.length) {
     var e = document.createElement('div'); e.className = 'empty';
-    e.textContent = 'Tap a button when it happens. We work out the time between drinks and passes for you.';
+    e.textContent = t('Tap a button when it happens. We work out the time between drinks and passes for you.');
     wrap.appendChild(e); return;
   }
   var h = wrap.clientHeight, n = Math.max(2, Math.min(5, Math.floor((h - MORE_H) / ROW_H)));
   s.slice(0, n).forEach(function (x) { wrap.appendChild(buildRow(x, info, true)); });
   var m = document.createElement('button'); m.type = 'button'; m.className = 'more';
-  m.appendChild(document.createTextNode('All ' + s.length + ' entries')); m.appendChild(svgIcon('i-right', 16));
+  m.appendChild(document.createTextNode(t('All {n} entries', { n: s.length }))); m.appendChild(svgIcon('i-right', 16));
   m.addEventListener('click', function () { dayOffset = 0; renderLog(); showOverlay('logSheet'); });
   wrap.appendChild(m);
 }
 function renderLog() {
   var r = dayRange(dayOffset), s = sorted(), info = gaps();
   var day = between(s, r[0], r[1]);
-  $('dayLabel').textContent = dayOffset === 0 ? 'Today' : dayOffset === -1 ? 'Yesterday'
-    : new Date(r[0]).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' });
+  $('dayLabel').textContent = dayOffset === 0 ? t('Today') : dayOffset === -1 ? t('Yesterday')
+    : fmtDate(r[0], { weekday: 'long', day: 'numeric', month: 'short' });
   $('next').disabled = dayOffset >= 0;
   var wrap = $('logList'); wrap.textContent = '';
-  if (!day.length) { var e = document.createElement('div'); e.className = 'empty'; e.textContent = 'Nothing was logged on this day.'; wrap.appendChild(e); return; }
+  if (!day.length) { var e = document.createElement('div'); e.className = 'empty'; e.textContent = t('Nothing was logged on this day.'); wrap.appendChild(e); return; }
   day.slice().reverse().forEach(function (x) { wrap.appendChild(buildRow(x, info, false)); });
 }
 function renderList() { renderLatest(); if (!$('logSheet').hidden) renderLog(); }
@@ -475,7 +485,7 @@ function segBar(parts) {
   parts.forEach(function (p) { if (!p.n) return; var d = el('div', '', p.text || ''); d.style.flex = String(p.n); d.style.background = p.color; d.style.color = p.ink; bar.appendChild(d); });
   return bar;
 }
-function signed(n, f) { return n === 0 ? 'same' : (n > 0 ? '+' : '−') + f(Math.abs(n)); }
+function signed(n, f) { return n === 0 ? t('same') : (n > 0 ? '+' : '−') + f(Math.abs(n)); }
 function periodStats(a, b) { return periodStatsOf(sorted(), a, b, isNight); }
 function tile(label, wide) { var t = el('div', 'tile' + (wide ? ' wide' : '')); t.appendChild(el('div', 'l', label)); return t; }
 function renderInsights() {
@@ -491,7 +501,7 @@ function renderInsights() {
     if (noSize) anyNoSize = true;
     var d = document.createElement('button'); d.type = 'button'; d.className = 'd ' + cls + (noSize ? ' ns' : '');
     d.setAttribute('data-id', x.id);
-    d.setAttribute('aria-label', NAMES[x.type] + ' at ' + fmtTime(x.t) + (x.size ? ', ' + fmtVol(x.size.ml) : (x.type === 'solid' ? '' : ', no size')) + '. Open details');
+    d.setAttribute('aria-label', t('{what} at {time}', { what: name(x.type), time: fmtTime(x.t) }) + (x.size ? ', ' + fmtVol(x.size.ml) : (x.type === 'solid' ? '' : ', ' + t('no size'))) + '. ' + t('Open details'));
     d.addEventListener('click', function () { openSheet(x); });
     d.style.width = d.style.height = size + 'px'; d.style.marginLeft = (-size / 2) + 'px'; d.style.left = left + '%'; d.style.top = (cy - size / 2) + 'px';
     plot.appendChild(d); return d;
@@ -507,19 +517,19 @@ function renderInsights() {
     rangeItems = items.filter(function (x) { return !isSleep(x); });
     items.forEach(function (x) {
       var pos = Math.max(1, Math.min(99, (x.t - start) / DAY * 100));
-      if (isSleep(x)) { var t = document.createElement('div'); t.className = 'tick'; t.style.left = pos + '%'; plot.appendChild(t); return; }
+      if (isSleep(x)) { var tk = document.createElement('div'); tk.className = 'tick'; tk.style.left = pos + '%'; plot.appendChild(tk); return; }
       mk(x, x.type, pos, solidLane ? (x.type === 'drink' ? 16 : x.type === 'solid' ? 42 : 68) : (x.type === 'drink' ? 22 : 62), 10);
       if (x.type === 'pass') { passes.push(x.t); var nn = isNight(x.t); passFlags.push(nn); if (nn) nightPasses++; if (x.size) { vols.push(x.size.ml); outMl += x.size.ml; outC++; } }
       else if (x.type === 'drink' && x.size) { inMl += x.size.ml; inC++; }
     });
     function label(txt, pos) { var sp = document.createElement('span'); sp.textContent = txt; sp.style.left = pos + '%'; tl.appendChild(sp); }
-    label('24 h ago', 7); label('Now', 95);
+    label(t('24 h ago'), 7); label(t('Now'), 95);
     for (var tt = Math.ceil(start / H) * H; tt < now; tt += H) {
       var dt = new Date(tt);
       if (dt.getHours() % 6 === 0) { var ps = (tt - start) / DAY * 100; if (ps > 20 && ps < 85) label(fmtHour(dt.getHours(), settings.clock), ps); }
     }
   } else {
-    lab.style.display = ''; $('axis').hidden = false; tl.hidden = true;
+    lab.style.display = ''; $('axis').hidden = false; fillAxis($('axis')); tl.hidden = true;
     var rowH = rangeDays <= 7 ? 28 : rangeDays <= 14 ? 18 : 12;
     var base = rangeDays <= 7 ? (solidLane ? 7 : 8) : rangeDays <= 14 ? (solidLane ? 5 : 6) : (solidLane ? 3 : 4);
     var cD = solidLane ? (rangeDays <= 7 ? 6 : rangeDays <= 14 ? 3 : 2) : (rangeDays <= 7 ? 8 : rangeDays <= 14 ? 5 : 3.5);
@@ -533,7 +543,7 @@ function renderInsights() {
         if (i === 0) firstStart = ds;
         var l = document.createElement('div'); l.style.height = rowH + 'px'; l.style.lineHeight = rowH + 'px';
         var showLab = rangeDays <= 14 || i % 5 === 0 || off === 0;
-        l.textContent = !showLab ? '' : off === 0 ? 'Today' : rangeDays <= 7 ? new Date(ds).toLocaleDateString([], { weekday: 'short' }) : new Date(ds).toLocaleDateString([], { day: 'numeric', month: 'short' });
+        l.textContent = !showLab ? '' : off === 0 ? t('Today') : rangeDays <= 7 ? fmtDate(ds, { weekday: 'short' }) : fmtDate(ds, { day: 'numeric', month: 'short' });
         lab.appendChild(l);
         if (i > 0) { var ln = document.createElement('div'); ln.className = 'ln'; ln.style.top = (i * rowH) + 'px'; plot.appendChild(ln); }
         nightSegments(ds, 15 * 60000, 96).forEach(function (sg) {
@@ -559,9 +569,9 @@ function renderInsights() {
   // legend
   var lg = $('legend'); lg.textContent = '';
   function li(cls, style, txt) { var sp = el('span'); var i = el('i', cls); if (style) i.style.cssText = style; sp.appendChild(i); sp.appendChild(document.createTextNode(txt)); lg.appendChild(sp); }
-  li('', 'background:var(--drink)', 'Drink'); li('', 'background:var(--pass)', 'Pass'); if (solidLane) li('solidkey', '', 'Solid'); li('band', '', 'Night');
-  if (anyNoSize) li('ring', '', 'No size');
-  if (amount) { var sp2 = el('span'); [6, 9, 12].forEach(function (z) { var i = el('i'); i.style.cssText = 'background:var(--muted);width:' + z + 'px;height:' + z + 'px'; sp2.appendChild(i); }); sp2.appendChild(document.createTextNode('Bigger dot, bigger amount')); lg.appendChild(sp2); }
+  li('', 'background:var(--drink)', t('Drink')); li('', 'background:var(--pass)', t('Pass')); if (solidLane) li('solidkey', '', t('Solid')); li('band', '', t('Night'));
+  if (anyNoSize) li('ring', '', t('No size'));
+  if (amount) { var sp2 = el('span'); [6, 9, 12].forEach(function (z) { var i = el('i'); i.style.cssText = 'background:var(--muted);width:' + z + 'px;height:' + z + 'px'; sp2.appendChild(i); }); sp2.appendChild(document.createTextNode(t('Bigger dot, bigger amount'))); lg.appendChild(sp2); }
 
   // tiles
   var tiles = $('tiles'); tiles.textContent = ''; var multi = rangeDays > 1;
@@ -572,102 +582,102 @@ function renderInsights() {
   if (settings.compare) {
     var nowT = Date.now(), curA = rangeDays === 1 ? nowT - DAY : dayRange(-(rangeDays - 1))[0];
     var prevA = rangeDays === 1 ? nowT - 2 * DAY : dayRange(-(2 * rangeDays - 1))[0], prevB = rangeDays === 1 ? nowT - DAY : curA;
-    cmp = { cur: periodStats(curA, nowT + 1), prev: periodStats(prevA, prevB), label: 'vs previous ' + (rangeDays === 1 ? '24 h' : rangeDays + ' days') };
+    cmp = { cur: periodStats(curA, nowT + 1), prev: periodStats(prevA, prevB), label: rangeDays === 1 ? t('vs previous 24 h') : t('vs previous {n} days', { n: rangeDays }) };
   }
   function avgOf(ml, n) { return multi ? (n ? ml / n : 0) : ml; }
-  var io = tile(multi ? 'In and out, per day' : 'In and out', true);
+  var io = tile(multi ? t('In and out, per day') : t('In and out'), true);
   var iv = inC ? (multi ? inMl / inC : inMl) : 0, ov = outC ? (multi ? outMl / outC : outMl) : 0, mx = Math.max(iv, ov);
-  if (!mx) io.appendChild(el('div', 'empty2', 'Add sizes to your entries to see volumes.'));
-  else [['In', iv, 'var(--drink)'], ['Out', ov, 'var(--pass)']].forEach(function (q) {
+  if (!mx) io.appendChild(el('div', 'empty2', t('Add sizes to your entries to see volumes.')));
+  else [[t('In'), iv, 'var(--drink)'], [t('Out'), ov, 'var(--pass)']].forEach(function (q) {
     var row = el('div', 'io'); row.appendChild(el('span', 'k', q[0]));
     var tr = el('div', 'track'), f = el('div', 'fill'); f.style.width = (q[1] / mx * 100) + '%'; f.style.background = q[2]; tr.appendChild(f); row.appendChild(tr);
     row.appendChild(el('span', 'v', q[1] ? fmtVol(q[1]) : '–')); io.appendChild(row);
   });
   if (cmp) {
-    if (cmp.prev.outN || cmp.prev.inN) io.appendChild(el('div', 'sub', 'Out ' + signed(avgOf(cmp.cur.outMl, cmp.cur.outN) - avgOf(cmp.prev.outMl, cmp.prev.outN), fmtVol) + ' · In ' + signed(avgOf(cmp.cur.inMl, cmp.cur.inN) - avgOf(cmp.prev.inMl, cmp.prev.inN), fmtVol) + ' ' + cmp.label));
-    else io.appendChild(el('div', 'sub', 'No earlier data to compare.'));
+    if (cmp.prev.outN || cmp.prev.inN) io.appendChild(el('div', 'sub', t('Out') + ' ' + signed(avgOf(cmp.cur.outMl, cmp.cur.outN) - avgOf(cmp.prev.outMl, cmp.prev.outN), fmtVol) + ' · ' + t('In') + ' ' + signed(avgOf(cmp.cur.inMl, cmp.cur.inN) - avgOf(cmp.prev.inMl, cmp.prev.inN), fmtVol) + ' ' + cmp.label));
+    else io.appendChild(el('div', 'sub', t('No earlier data to compare.')));
   }
   tiles.appendChild(io);
 
-  var gt = tile('Typical gap');
+  var gt = tile(t('Typical gap'));
   gt.appendChild(el('div', 'n', gp.length ? fmtDur(median(gp)) : '–'));
   if (gp.length) {
     var rec = gp.slice(-12), gmax = Math.max.apply(null, rec), sp = el('div', 'spark');
     rec.forEach(function (g) { var b = el('span'); b.style.height = Math.max(8, g / gmax * 100) + '%'; sp.appendChild(b); });
     var ml = el('i'); ml.style.bottom = (median(gp) / gmax * 100) + '%'; sp.appendChild(ml); gt.appendChild(sp);
-    gt.appendChild(el('div', 'sub', 'Longest ' + fmtDur(Math.max.apply(null, gp))));
+    gt.appendChild(el('div', 'sub', t('Longest {d}', { d: fmtDur(Math.max.apply(null, gp)) })));
   }
   if (cmp && cmp.cur.med !== null && cmp.prev.med !== null) gt.appendChild(el('div', 'sub', signed(cmp.cur.med - cmp.prev.med, fmtDur) + ' ' + cmp.label));
   tiles.appendChild(gt);
 
-  var nt = tile(multi ? 'Night passes, per night' : 'Night passes');
+  var nt = tile(multi ? t('Night passes, per night') : t('Night passes'));
   var nv = el('div', 'n');
   if (!passes.length) nv.textContent = '–';
-  else if (multi) nv.textContent = (Math.round(nightPasses / Math.max(1, withData) * 10) / 10) + ' a night';
-  else { nv.appendChild(document.createTextNode(String(nightPasses) + ' ')); nv.appendChild(el('small', '', 'of ' + passes.length)); }
+  else if (multi) nv.textContent = t('{n} a night', { n: num(nightPasses / Math.max(1, withData)) });
+  else { nv.appendChild(document.createTextNode(String(nightPasses) + ' ')); nv.appendChild(el('small', '', t('of {n}', { n: passes.length }))); }
   nt.appendChild(nv);
   if (passes.length && !multi && passes.length <= 12) {
     var ic = el('div', 'nicons'); passFlags.forEach(function (f) { ic.appendChild(svgIcon(f ? 'i-moon' : 'i-sun', 18, f ? '' : 'day')); }); nt.appendChild(ic);
   } else if (passes.length) {
     var nb = el('div', 'nbar'), nf = el('div'); nf.style.width = (nightPasses / passes.length * 100) + '%'; nb.appendChild(nf); nt.appendChild(nb);
-    nt.appendChild(el('div', 'sub', nightPasses + ' of ' + passes.length + ' passes at night'));
+    nt.appendChild(el('div', 'sub', t('{a} of {b} passes at night', { a: nightPasses, b: passes.length })));
   }
   if (cmp && cmp.prev.passes.length) nt.appendChild(el('div', 'sub', signed(cmp.cur.night - cmp.prev.night, String) + ' ' + cmp.label));
   tiles.appendChild(nt);
 
   var solidsR = rangeItems.filter(function (x) { return x.type === 'solid'; });
   if (settings.trackSolid || solidsR.length) {
-    var sdt = tile(multi ? 'Solids, per day' : 'Solids', true), sdv = el('div', 'n');
-    sdv.textContent = !solidsR.length ? '–' : multi ? (Math.round(solidsR.length / rangeDays * 10) / 10) + ' a day' : String(solidsR.length);
+    var sdt = tile(multi ? t('Solids, per day') : t('Solids'), true), sdv = el('div', 'n');
+    sdv.textContent = !solidsR.length ? '–' : multi ? t('{n} a day', { n: num(solidsR.length / rangeDays) }) : String(solidsR.length);
     sdt.appendChild(sdv);
-    if (solidsR.length > 1) { var sgp = []; for (var q = 1; q < solidsR.length; q++) sgp.push(solidsR[q].t - solidsR[q - 1].t); sdt.appendChild(el('div', 'sub', 'Typical gap ' + fmtDur(median(sgp)))); }
-    else if (solidsR.length) sdt.appendChild(el('div', 'sub', 'Last ' + agoText(solidsR[0].t)));
+    if (solidsR.length > 1) { var sgp = []; for (var q = 1; q < solidsR.length; q++) sgp.push(solidsR[q].t - solidsR[q - 1].t); sdt.appendChild(el('div', 'sub', t('Typical gap {d}', { d: fmtDur(median(sgp)) }))); }
+    else if (solidsR.length) sdt.appendChild(el('div', 'sub', t('Last {ago}', { ago: agoText(solidsR[0].t) })));
     var bc = [0, 0, 0, 0, 0, 0, 0, 0];
     solidsR.forEach(function (x) { if (x.bristol >= 1 && x.bristol <= 7) bc[x.bristol]++; else bc[0]++; });
     if (bc.reduce(function (a, b) { return a + b; }, 0) - bc[0] > 0) {
       var BR = ['#e8d9cc', '#d9bfa8', '#c5a283', '#a98160', '#8a6a4f', '#6e533d', '#4f3b2b'], parts = [], bl = [];
-      for (var z = 1; z <= 7; z++) if (bc[z]) { parts.push({ n: bc[z], color: BR[z - 1], ink: z <= 4 ? '#2a1d12' : '#ffffff', text: String(z) }); bl.push('Type ' + z + ': ' + bc[z]); }
-      if (bc[0]) { parts.push({ n: bc[0], color: '#e3edf2', ink: '#526c7b', text: '–' }); bl.push('Not recorded: ' + bc[0]); }
-      sdt.appendChild(segBar(parts)); sdt.appendChild(el('div', 'sub', 'Bristol scale. ' + bl.join(' · ')));
+      for (var z = 1; z <= 7; z++) if (bc[z]) { parts.push({ n: bc[z], color: BR[z - 1], ink: z <= 4 ? '#2a1d12' : '#ffffff', text: String(z) }); bl.push(t('Type {z}: {n}', { z: z, n: bc[z] })); }
+      if (bc[0]) { parts.push({ n: bc[0], color: '#e3edf2', ink: '#526c7b', text: '–' }); bl.push(t('Not recorded: {n}', { n: bc[0] })); }
+      sdt.appendChild(segBar(parts)); sdt.appendChild(el('div', 'sub', t('Bristol scale.') + ' ' + bl.join(' · ')));
     }
     if (cmp && cmp.prev.solids) sdt.appendChild(el('div', 'sub', signed(cmp.cur.solids - cmp.prev.solids, String) + ' ' + cmp.label));
     tiles.appendChild(sdt);
   }
 
-  var st = tile('Pass sizes', true), sc = { small: 0, medium: 0, large: 0, exact: 0, none: 0 };
+  var st = tile(t('Pass sizes'), true), sc = { small: 0, medium: 0, large: 0, exact: 0, none: 0 };
   rangeItems.forEach(function (x) { if (x.type !== 'pass') return; if (!x.size) sc.none++; else sc[sc[x.size.label] !== undefined ? x.size.label : 'exact']++; });
-  if (!(sc.small + sc.medium + sc.large + sc.exact + sc.none)) st.appendChild(el('div', 'empty2', 'No passes in this range.'));
+  if (!(sc.small + sc.medium + sc.large + sc.exact + sc.none)) st.appendChild(el('div', 'empty2', t('No passes in this range.')));
   else st.appendChild(segBar([
-    { n: sc.small, color: '#ffeb99', ink: '#3d3000', text: 'Small ' + sc.small }, { n: sc.medium, color: '#f6c800', ink: '#3d3000', text: 'Medium ' + sc.medium },
-    { n: sc.large, color: '#c79f00', ink: '#2a2100', text: 'Large ' + sc.large }, { n: sc.exact, color: '#8f6f00', ink: '#ffffff', text: 'Exact ' + sc.exact },
-    { n: sc.none, color: '#e3edf2', ink: '#526c7b', text: 'No size ' + sc.none }]));
+    { n: sc.small, color: '#ffeb99', ink: '#3d3000', text: t('Small') + ' ' + sc.small }, { n: sc.medium, color: '#f6c800', ink: '#3d3000', text: t('Medium') + ' ' + sc.medium },
+    { n: sc.large, color: '#c79f00', ink: '#2a2100', text: t('Large') + ' ' + sc.large }, { n: sc.exact, color: '#8f6f00', ink: '#ffffff', text: t('Exact') + ' ' + sc.exact },
+    { n: sc.none, color: '#e3edf2', ink: '#526c7b', text: t('No size') + ' ' + sc.none }]));
   tiles.appendChild(st);
 
   if (settings.showUrgency) {
-    var ut = tile('Urgency of passes', true), uc = { none: 0, mild: 0, strong: 0, cantwait: 0, na: 0 };
+    var ut = tile(t('Urgency of passes'), true), uc = { none: 0, mild: 0, strong: 0, cantwait: 0, na: 0 };
     rangeItems.forEach(function (x) { if (x.type !== 'pass') return; uc[x.urgency && uc[x.urgency] !== undefined ? x.urgency : 'na']++; });
     var utot = uc.none + uc.mild + uc.strong + uc.cantwait + uc.na;
-    if (!utot) ut.appendChild(el('div', 'empty2', 'No passes in this range.'));
+    if (!utot) ut.appendChild(el('div', 'empty2', t('No passes in this range.')));
     else {
       ut.appendChild(segBar([
         { n: uc.none, color: '#fff6cc', ink: '#3d3000', text: String(uc.none) }, { n: uc.mild, color: '#ffeb99', ink: '#3d3000', text: String(uc.mild) },
         { n: uc.strong, color: '#c79f00', ink: '#2a2100', text: String(uc.strong) }, { n: uc.cantwait, color: '#8f6f00', ink: '#ffffff', text: String(uc.cantwait) },
         { n: uc.na, color: '#e3edf2', ink: '#526c7b', text: String(uc.na) }]));
-      var ul = []; if (uc.none) ul.push('None ' + uc.none); if (uc.mild) ul.push('Mild ' + uc.mild); if (uc.strong) ul.push('Strong ' + uc.strong); if (uc.cantwait) ul.push('Couldn’t wait ' + uc.cantwait); if (uc.na) ul.push('Not recorded ' + uc.na);
+      var ul = []; [['none', 'None'], ['mild', 'Mild'], ['strong', 'Strong'], ['cantwait', 'Couldn’t wait'], ['na', 'Not recorded']].forEach(function (q) { if (uc[q[0]]) ul.push(t(q[1]) + ' ' + uc[q[0]]); });
       ut.appendChild(el('div', 'sub', ul.join(' · ')));
     }
     tiles.appendChild(ut);
   }
 
   if (settings.showKind) {
-    var kt = tile('Drink types', true), kn = {}, kv = {}, anyMl = false;
+    var kt = tile(t('Drink types'), true), kn = {}, kv = {}, anyMl = false;
     rangeItems.forEach(function (x) { if (x.type !== 'drink') return; var key = x.kind || 'na'; kn[key] = (kn[key] || 0) + 1; if (x.size) { kv[key] = (kv[key] || 0) + x.size.ml; anyMl = true; } });
     var KC = { water: ['#1572b5', '#ffffff'], teacoffee: ['#7bb8e0', '#0e2a3b'], alcohol: ['#0e2a3b', '#ffffff'], other: ['#a9bcc7', '#0e2a3b'], na: ['#e3edf2', '#526c7b'] };
     var keys = ['water', 'teacoffee', 'alcohol', 'other', 'na'].filter(function (q) { return kn[q]; });
-    if (!keys.length) kt.appendChild(el('div', 'empty2', 'No drinks in this range.'));
+    if (!keys.length) kt.appendChild(el('div', 'empty2', t('No drinks in this range.')));
     else {
-      kt.appendChild(segBar(keys.map(function (q) { return { n: anyMl ? (kv[q] || 0) : kn[q], color: KC[q][0], ink: KC[q][1], text: q === 'na' ? '' : labelOf(KINDS, q) }; })));
-      kt.appendChild(el('div', 'sub', keys.map(function (q) { return (q === 'na' ? 'Not recorded' : labelOf(KINDS, q)) + ' ' + (kv[q] ? fmtVol(kv[q]) : kn[q] + '×'); }).join(' · ')));
+      kt.appendChild(segBar(keys.map(function (q) { return { n: anyMl ? (kv[q] || 0) : kn[q], color: KC[q][0], ink: KC[q][1], text: q === 'na' ? '' : t(labelOf(KINDS, q)) }; })));
+      kt.appendChild(el('div', 'sub', keys.map(function (q) { return (q === 'na' ? t('Not recorded') : t(labelOf(KINDS, q))) + ' ' + (kv[q] ? fmtVol(kv[q]) : kn[q] + '×'); }).join(' · ')));
     }
     tiles.appendChild(kt);
   }
@@ -681,6 +691,10 @@ function reportData() {
   }
   return out;
 }
+function fillAxis(ax) {
+  ax.textContent = '';
+  (settings.clock === '12' ? ['12a', '6a', '12p', '6p', '12a'] : ['00', '06', '12', '18', '24']).forEach(function (h) { ax.appendChild(el('span', '', h)); });
+}
 function buildDiaryChart(box, data) {
   box.textContent = '';
   var solidLane = settings.trackSolid || log.some(function (x) { return x.type === 'solid'; });
@@ -688,7 +702,7 @@ function buildDiaryChart(box, data) {
   mid.style.cssText = 'flex:1;min-width:0'; lab.style.height = plot.style.height = (data.length * rowH) + 'px'; lab.style.width = '56px';
   var cD = solidLane ? 6 : 8, cS = 14, cP = solidLane ? 22 : 20, base = solidLane ? 7 : 8;
   data.forEach(function (d, i) {
-    var l = el('div', '', new Date(d.start).toLocaleDateString([], { weekday: 'short', day: 'numeric' })); l.style.cssText = 'height:' + rowH + 'px;line-height:' + rowH + 'px'; lab.appendChild(l);
+    var l = el('div', '', fmtDate(d.start, { weekday: 'short', day: 'numeric' })); l.style.cssText = 'height:' + rowH + 'px;line-height:' + rowH + 'px'; lab.appendChild(l);
     if (i > 0) { var ln = el('div', 'ln'); ln.style.top = (i * rowH) + 'px'; plot.appendChild(ln); }
     nightSegments(d.start, 15 * 60000, 96).forEach(function (sg) {
       var nb = el('div', 'nb'); nb.style.left = (sg[0] / 96 * 100) + '%'; nb.style.width = ((sg[1] - sg[0]) / 96 * 100) + '%'; nb.style.top = (i * rowH) + 'px'; nb.style.height = rowH + 'px'; plot.appendChild(nb);
@@ -701,72 +715,84 @@ function buildDiaryChart(box, data) {
     });
   });
   mid.appendChild(plot);
-  var ax = el('div', 'axis'); (settings.clock === '12' ? ['12a', '6a', '12p', '6p', '12a'] : ['00', '06', '12', '18', '24']).forEach(function (t) { ax.appendChild(el('span', '', t)); }); mid.appendChild(ax);
+  var ax = el('div', 'axis'); fillAxis(ax); mid.appendChild(ax);
   wrap.appendChild(lab); wrap.appendChild(mid); box.appendChild(wrap);
   var lg = el('div', 'legend');
   function li(cls, style, txt) { var sp = el('span'), i = el('i', cls); if (style) i.style.cssText = style; sp.appendChild(i); sp.appendChild(document.createTextNode(txt)); lg.appendChild(sp); }
-  li('', 'background:var(--drink)', 'Drink'); li('', 'background:var(--pass)', 'Pass'); if (solidLane) li('solidkey', '', 'Solid'); li('band', '', 'Night'); li('ring', '', 'No size');
+  li('', 'background:var(--drink)', t('Drink')); li('', 'background:var(--pass)', t('Pass')); if (solidLane) li('solidkey', '', t('Solid')); li('band', '', t('Night')); li('ring', '', t('No size'));
   box.appendChild(lg);
 }
 function buildFvTable(box, data) {
   box.textContent = '';
-  var fv = fvSummary(data, isNight), t = el('table', 'rep fv');
-  t.appendChild(el('caption', '', 'Frequency and volume'));
-  var head = t.createTHead().insertRow();
-  ['Day', 'In', 'Passes (night)', 'Out', 'Night out', 'Largest', 'Average'].forEach(function (h) { var th = document.createElement('th'); th.scope = 'col'; th.textContent = h; head.appendChild(th); });
-  var tb = t.createTBody(), v = function (ml) { return ml ? fmtVol(ml).replace(' ', '\u00a0') : '–'; };
+  var fv = fvSummary(data, isNight), tbl = el('table', 'rep fv');
+  tbl.appendChild(el('caption', '', t('Frequency and volume')));
+  var head = tbl.createTHead().insertRow();
+  [t('Day'), t('In'), t('Passes (night)'), t('Out'), t('Night out'), t('Largest'), t('Average')].forEach(function (h) { var th = document.createElement('th'); th.scope = 'col'; th.textContent = h; head.appendChild(th); });
+  var tb = tbl.createTBody(), v = function (ml) { return ml ? fmtVol(ml).replace(' ', '\u00a0') : '–'; };
   function row(label, r, cls) {
     var tr = tb.insertRow(); if (cls) tr.className = cls;
     var th = document.createElement('th'); th.scope = 'row'; th.textContent = label; tr.appendChild(th);
-    [v(r.intakeMl), (Math.round(r.passes * 10) / 10) + ' (' + (Math.round(r.nightPasses * 10) / 10) + ')', v(r.outMl), v(r.nightMl), v(r.maxMl), v(r.meanMl)].forEach(function (c) { tr.insertCell().textContent = c; });
+    [v(r.intakeMl), num(r.passes) + ' (' + num(r.nightPasses) + ')', v(r.outMl), v(r.nightMl), v(r.maxMl), v(r.meanMl)].forEach(function (c) { tr.insertCell().textContent = c; });
   }
-  fv.rows.forEach(function (r) { row(new Date(r.start).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }), r); });
-  if (fv.rows.length > 1 && fv.daysKept) row('Per day', fv.average, 'tot');
-  box.appendChild(t);
-  box.appendChild(el('p', 'hint fvnote', 'In is drinks, Out is passes. Night counts passes during your marked sleep or night hours. Volumes only include entries with a size; Average is per pass with a size. Per day averages over the days with entries' + (fv.daysKept < fv.rows.length ? ' (' + fv.daysKept + ' of ' + fv.rows.length + ')' : '') + '.'));
+  fv.rows.forEach(function (r) { row(fmtDate(r.start, { weekday: 'short', day: 'numeric', month: 'short' }), r); });
+  if (fv.rows.length > 1 && fv.daysKept) row(t('Per day'), fv.average, 'tot');
+  box.appendChild(tbl);
+  var note = t('In is drinks, Out is passes. Night counts passes during your marked sleep or night hours. Volumes only include entries with a size; Average is per pass with a size.');
+  if (fv.rows.length > 1) note += ' ' + (fv.daysKept < fv.rows.length ? t('Per day averages over the {a} of {b} days with entries.', { a: fv.daysKept, b: fv.rows.length }) : t('Per day averages over the days with entries.'));
+  box.appendChild(el('p', 'hint fvnote', note));
+}
+function reportRange(data) {
+  var fd = function (ms) { return fmtDate(ms, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }); };
+  return data.length === 1 ? fd(data[0].start) : t('{a} to {b}', { a: fd(data[0].start), b: fd(data[data.length - 1].start) });
 }
 function renderReport() {
   each('[data-days]', function (c) { c.setAttribute('aria-pressed', +c.getAttribute('data-days') === reportDays ? 'true' : 'false'); });
   var data = reportData(), box = $('reportTable'); box.textContent = '';
-  var fd = function (ms) { return new Date(ms).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }); };
   var ttl = $('reportTitle'); ttl.textContent = '';
-  var h = el('div', '', 'Drink & Pass diary'); h.style.cssText = 'font-size:1.3rem;font-weight:600'; ttl.appendChild(h);
-  ttl.appendChild(el('div', 'hint', data.length === 1 ? fd(data[0].start) : fd(data[0].start) + ' to ' + fd(data[data.length - 1].start)));
-  ttl.appendChild(el('div', 'hint', 'Times are local. Volumes in ' + (settings.unit === 'oz' ? 'fl oz' : 'ml') + '. Sizes are estimates unless measured.'));
+  ttl.appendChild(el('div', 'rephead', t('Bladder and drink diary')));
+  ttl.appendChild(el('div', 'repsub', reportRange(data)));
+  var who = el('div', 'repwho');
+  [t('Name'), t('Date of birth')].forEach(function (q) { var f = el('div', 'repfield'); f.appendChild(el('span', '', q)); f.appendChild(el('i')); who.appendChild(f); });
+  ttl.appendChild(who);
+  ttl.appendChild(el('div', 'hint', t('Times are local. Volumes in {unit}. Sizes are estimates unless measured.', { unit: settings.unit === 'oz' ? 'fl oz' : 'ml' })));
   buildDiaryChart($('reportChart'), data);
   buildFvTable($('reportFv'), data);
-  var t = document.createElement('table'); t.className = 'rep'; t.style.marginTop = '12px';
-  var head = t.createTHead().insertRow();
-  ['Time', 'Drink in', 'Pass out'].forEach(function (hh) { var th = document.createElement('th'); th.textContent = hh; head.appendChild(th); });
-  var tb = t.createTBody();
+  var withNotes = data.some(function (d) { return d.items.some(function (x) { return x.note; }); }), cols = withNotes ? 4 : 3;
+  var tbl = el('table', 'rep diary'); tbl.style.marginTop = '12px';
+  var head = tbl.createTHead().insertRow();
+  [t('Time'), t('Drink in'), t('Pass out')].concat(withNotes ? [t('Notes')] : []).forEach(function (hh) { var th = document.createElement('th'); th.scope = 'col'; th.textContent = hh; head.appendChild(th); });
   data.forEach(function (d) {
-    var hr = tb.insertRow(); hr.className = 'dayhead';
-    var c = hr.insertCell(); c.colSpan = 3;
-    c.textContent = new Date(d.start).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
+    var tb = tbl.createTBody(), hr = tb.insertRow(); hr.className = 'dayhead';
+    var c = hr.insertCell(); c.colSpan = cols;
+    c.textContent = fmtDate(d.start, { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
     var tin = 0, tout = 0, np = 0, nn = 0, ns = 0;
     d.items.forEach(function (x) {
       var r = tb.insertRow();
       r.insertCell().textContent = fmtTime(x.t);
-      if (isSleep(x)) { var sc = r.insertCell(); sc.colSpan = 2; sc.className = 'sleep'; sc.textContent = NAMES[x.type]; return; }
+      var noteCell = function () { if (withNotes) r.insertCell().textContent = x.note || ''; };
+      if (isSleep(x)) { var sc = r.insertCell(); sc.colSpan = 2; sc.className = 'sleep'; sc.textContent = name(x.type); noteCell(); return; }
       if (x.type === 'solid') {
         var sd = r.insertCell(); sd.colSpan = 2; ns++;
-        sd.textContent = 'Solid' + (x.bristol ? ', Bristol ' + x.bristol : '') + (x.urgency && x.urgency !== 'none' ? ', urgency: ' + labelOf(URG, x.urgency).toLowerCase() : '');
-        return;
+        sd.textContent = name('solid') + (x.bristol ? ', ' + t('Bristol {n}', { n: x.bristol }) : '') + (x.urgency && x.urgency !== 'none' ? ', ' + urgText(x.urgency) : '');
+        noteCell(); return;
       }
       var a = r.insertCell(), b = r.insertCell();
-      var txt = x.size ? fmtVol(x.size.ml) : 'logged';
-      if (x.type === 'drink') { a.textContent = txt + (x.kind ? ' (' + labelOf(KINDS, x.kind).toLowerCase() + ')' : ''); if (x.size) tin += x.size.ml; }
+      var txt = x.size ? fmtVol(x.size.ml) : t('logged');
+      if (x.type === 'drink') { a.textContent = txt + (x.kind ? ' (' + low(t(labelOf(KINDS, x.kind))) + ')' : ''); if (x.size) tin += x.size.ml; }
       else {
-        b.textContent = txt + (isNight(x.t) ? ' (night)' : '') + (x.urgency && x.urgency !== 'none' ? ', urgency: ' + labelOf(URG, x.urgency).toLowerCase() : '');
+        b.textContent = txt + nightTag(x.t) + (x.urgency && x.urgency !== 'none' ? ', ' + urgText(x.urgency) : '');
         if (x.size) tout += x.size.ml; np++; if (isNight(x.t)) nn++;
       }
+      noteCell();
     });
     var tr = tb.insertRow(); tr.className = 'tot';
-    tr.insertCell().textContent = 'Totals';
+    tr.insertCell().textContent = t('Totals');
     tr.insertCell().textContent = tin ? fmtVol(tin) : '–';
-    tr.insertCell().textContent = np + ' passes, ' + nn + ' at night' + (tout ? ', ' + fmtVol(tout) : '') + (ns ? ', ' + ns + ' solid' : '');
+    var tc = tr.insertCell(); if (withNotes) tc.colSpan = 2;
+    tc.textContent = tn(np, '{n} pass, {m} at night', '{n} passes, {m} at night', { m: nn }) + (tout ? ', ' + fmtVol(tout) : '') + (ns ? ', ' + tn(ns, '{n} solid', '{n} solids') : '');
   });
-  box.appendChild(t);
+  box.appendChild(tbl);
+  $('reportFoot').textContent = t('Created with Drink & Pass Journal on {date}. It records what was entered and isn’t medical advice.', { date: fmtDate(Date.now(), { day: 'numeric', month: 'long', year: 'numeric' }) });
 }
 function csv() {
   var items = []; reportData().forEach(function (d) { items = items.concat(d.items); });
@@ -774,7 +800,7 @@ function csv() {
 }
 /** Copies text, or the text a promise resolves to (e.g. an encrypted backup) without losing the tap that started it. */
 function copyText(text, msgEl, okMsg, onOk) {
-  function done(ok) { msgEl.textContent = ok ? okMsg : 'Copy failed. Select and copy manually.'; if (ok && onOk) onOk(); setTimeout(function () { msgEl.textContent = ''; }, 2500); }
+  function done(ok) { msgEl.textContent = ok ? okMsg : t('Copy failed. Select and copy manually.'); if (ok && onOk) onOk(); setTimeout(function () { msgEl.textContent = ''; }, 2500); }
   function fallback(t) {
     try { var ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
       document.body.appendChild(ta); ta.select(); var ok = document.execCommand('copy'); document.body.removeChild(ta); done(ok); }
@@ -790,8 +816,8 @@ function copyText(text, msgEl, okMsg, onOk) {
   } catch (e) { pending.then(fallback, function () { done(false); }); }
 }
 function saveFile(name, data, msgEl, onOk) {
-  downloadFile({ filename: name, data: data }).then(function () { msgEl.textContent = 'Saved'; if (onOk) onOk(); setTimeout(function () { msgEl.textContent = ''; }, 2500); },
-    function (e) { msgEl.textContent = (e && e.code === 'declined') ? 'Cancelled' : 'Couldn’t save. Use Copy instead.'; setTimeout(function () { msgEl.textContent = ''; }, 3000); });
+  downloadFile({ filename: name, data: data }).then(function () { msgEl.textContent = t('Saved'); if (onOk) onOk(); setTimeout(function () { msgEl.textContent = ''; }, 2500); },
+    function (e) { msgEl.textContent = (e && e.code === 'declined') ? t('Cancelled') : t('Couldn’t save. Use Copy instead.'); setTimeout(function () { msgEl.textContent = ''; }, 3000); });
 }
 function stamp() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 
@@ -865,18 +891,18 @@ $('noteInput').addEventListener('blur', flushNote);
 $('timeToggle').addEventListener('click', function () { $('timeRow').hidden = false; $('timeInput').focus(); });
 $('timeInput').addEventListener('change', function () {
   var e = find(sheetId); if (!e || !this.value) return;
-  var t = new Date(this.value).getTime();
-  if (isNaN(t)) return;
-  if (t > Date.now() + 60000) { $('sheetInfo').textContent = 'The time can’t be in the future.'; $('sheetInfo').hidden = false; this.value = toLocalInput(e.t); return; }
-  e.t = t; save();
-  dayOffset = Math.min(0, Math.round((startOfDay(t) - startOfDay(Date.now())) / DAY));
+  var ms = new Date(this.value).getTime();
+  if (isNaN(ms)) return;
+  if (ms > Date.now() + 60000) { $('sheetInfo').textContent = t('The time can’t be in the future.'); $('sheetInfo').hidden = false; this.value = toLocalInput(e.t); return; }
+  e.t = ms; save();
+  dayOffset = Math.min(0, Math.round((startOfDay(ms) - startOfDay(Date.now())) / DAY));
   render(); openSheet(e, true);
 });
 function nudgeTime(dm) {
   var e = find(sheetId); if (!e) return;
-  var t = e.t + dm * 60000;
-  if (t > Date.now() + 60000) { $('sheetInfo').textContent = 'The time can’t be in the future.'; $('sheetInfo').hidden = false; return; }
-  e.t = t; save(); dayOffset = Math.min(0, Math.round((startOfDay(t) - startOfDay(Date.now())) / DAY));
+  var ms = e.t + dm * 60000;
+  if (ms > Date.now() + 60000) { $('sheetInfo').textContent = t('The time can’t be in the future.'); $('sheetInfo').hidden = false; return; }
+  e.t = ms; save(); dayOffset = Math.min(0, Math.round((startOfDay(ms) - startOfDay(Date.now())) / DAY));
   render(); openSheet(e, true);
 }
 $('nudgeM').addEventListener('click', function () { nudgeTime(-5); });
@@ -896,12 +922,19 @@ document.addEventListener('keydown', function (e) {
 });
 each('[data-range]', function (b) { b.addEventListener('click', function () { rangeDays = +b.getAttribute('data-range'); settings.range = rangeDays; save(); reportDays = rangeDays > 7 ? 7 : rangeDays; renderInsights(); }); });
 each('[data-days]', function (b) { b.addEventListener('click', function () { reportDays = +b.getAttribute('data-days'); renderReport(); }); });
-$('copyCsv').addEventListener('click', function () { copyText(csv(), $('reportMsg'), 'CSV copied'); });
+$('copyCsv').addEventListener('click', function () { copyText(csv(), $('reportMsg'), t('CSV copied')); });
 $('dlCsv').addEventListener('click', function () { saveFile('drink-pass-' + stamp() + '.csv', csv(), $('reportMsg')); });
-$('printBtn').addEventListener('click', function () {
-  try { document.body.classList.add('printing'); window.print(); }
-  catch (e) { $('reportMsg').textContent = 'Printing isn’t available here. Use Download or Copy as CSV instead.'; }
-  document.body.classList.remove('printing');
+// The browser's print window saves the PDF, so every script (including Chinese) uses the system fonts.
+var titleBeforePrint = null;
+function endPrint() { document.body.classList.remove('printing'); if (titleBeforePrint !== null) { document.title = titleBeforePrint; titleBeforePrint = null; } }
+window.addEventListener('afterprint', endPrint);
+$('pdfBtn').addEventListener('click', function () {
+  var data = reportData();
+  titleBeforePrint = document.title;
+  // Browsers suggest the page title as the PDF's file name.
+  document.title = t('Bladder and drink diary') + ' ' + isoDate(data[0].start) + (data.length > 1 ? ' – ' + isoDate(data[data.length - 1].start) : '');
+  document.body.classList.add('printing');
+  try { window.print(); } catch (e) { endPrint(); $('reportMsg').textContent = t('Printing isn’t available here. Use Download or Copy as CSV instead.'); }
 });
 each('[data-unit]', function (b) {
   b.addEventListener('click', function () { settings.unit = b.getAttribute('data-unit'); save(); syncSettings(); if (sheetId) closeSheet(); render(); });
@@ -926,8 +959,8 @@ function protectedBackup() {
   var pass = $('backupPass').value;
   return pass ? encryptBackup(backupText(), pass) : Promise.resolve(backupText());
 }
-function backupError() { backupMsgFlash('Couldn’t encrypt the backup in this browser.'); }
-$('copyBackup').addEventListener('click', function () { copyText($('backupPass').value ? protectedBackup() : backupText(), $('backupMsg'), 'Backup copied', markBackup); });
+function backupError() { backupMsgFlash(t('Couldn’t encrypt the backup in this browser.')); }
+$('copyBackup').addEventListener('click', function () { copyText($('backupPass').value ? protectedBackup() : backupText(), $('backupMsg'), t('Backup copied'), markBackup); });
 $('dlBackup').addEventListener('click', function () {
   var locked = !!$('backupPass').value;
   protectedBackup().then(function (t) { saveFile('drink-pass-backup-' + stamp() + (locked ? '-encrypted' : '') + '.json', t, $('backupMsg'), markBackup); }, backupError);
@@ -989,7 +1022,7 @@ function detectLoss() {
       var dismissed = 0; try { dismissed = +localStorage.getItem('dp-dismissed') || 0; } catch (e) {}
       if (missing.length && (log.length === 0 || missing.length >= 3) && best.at > dismissed) {
         recoveryPending = { entries: missing, at: best.at, settings: best.settings, wasMirror: best === m, log: best.log };
-        $('recoverText').textContent = 'We found an automatic copy with ' + missing.length + ' ' + (missing.length === 1 ? 'entry' : 'entries') + ' that ' + (missing.length === 1 ? 'isn’t' : 'aren’t') + ' in your journal. Restore ' + (missing.length === 1 ? 'it' : 'them') + '?';
+        $('recoverText').textContent = tn(missing.length, 'We found an automatic copy with {n} entry that isn’t in your journal. Restore it?', 'We found an automatic copy with {n} entries that aren’t in your journal. Restore them?');
         $('recover').hidden = false;
       }
     }
@@ -1000,43 +1033,43 @@ function detectLoss() {
 $('recoverNow').addEventListener('click', function () {
   if (!recoveryPending) return;
   var rp = recoveryPending; recoveryPending = null;
-  maybeSnapshot(true, 'Before recovery').then(function () {
+  maybeSnapshot(true, k('Before recovery')).then(function () {
     var have = {}; log.forEach(function (x) { have[x.id] = 1; });
     rp.entries.forEach(function (x) { if (!have[x.id]) log.push(x); });
-    save(); render(); $('recover').hidden = true; mirrorNow(); backupMsgFlash('Restored ' + rp.entries.length + ' entries');
+    save(); render(); $('recover').hidden = true; mirrorNow(); backupMsgFlash(tn(rp.entries.length, 'Restored {n} entry', 'Restored {n} entries'));
   });
 });
 $('recoverLater').addEventListener('click', function () {
   if (!recoveryPending) return;
   var rp = recoveryPending; recoveryPending = null; $('recover').hidden = true;
   try { localStorage.setItem('dp-dismissed', String(rp.at)); } catch (e) {}
-  if (rp.wasMirror) { idbOp('snaps', 'readwrite', function (os) { return os.put({ at: rp.at, n: rp.log.length, log: rp.log, settings: rp.settings, label: 'Earlier copy' }); }).then(pruneSnaps); }
+  if (rp.wasMirror) { idbOp('snaps', 'readwrite', function (os) { return os.put({ at: rp.at, n: rp.log.length, log: rp.log, settings: rp.settings, label: k('Earlier copy') }); }).then(pruneSnaps); }
   mirrorNow();
 });
 function backupMsgFlash(t) { var m = $('backupMsg'); m.textContent = t; setTimeout(function () { m.textContent = ''; }, 3000); }
 
 function storeStatus() {
-  var parts = ['Entries: ' + log.length + '.'];
-  parts.push('Installed as an app: ' + (isStandalone() ? 'yes.' : 'no.'));
-  parts.push(idb ? 'Automatic copies: ' + snapCache.length + (snapCache.length ? ' (latest ' + agoText(snapCache[0].at) + ').' : '.') : 'Automatic copies aren’t available in this browser.');
+  var parts = [t('Entries: {n}.', { n: log.length })];
+  parts.push(isStandalone() ? t('Installed as an app: yes.') : t('Installed as an app: no.'));
+  parts.push(!idb ? t('Automatic copies aren’t available in this browser.') : snapCache.length ? t('Automatic copies: {n} (latest {ago}).', { n: snapCache.length, ago: agoText(snapCache[0].at) }) : t('Automatic copies: {n}.', { n: 0 }));
   var el0 = $('storeStatus'), btn = $('persistBtn');
   var sm = navigator.storage;
   if (sm && sm.persisted) {
     sm.persisted().then(function (ok) {
-      parts.push('Browser protection: ' + (ok ? 'on.' : 'not on.')); el0.textContent = parts.join(' '); btn.hidden = !!ok || !sm.persist;
+      parts.push(ok ? t('Browser protection: on.') : t('Browser protection: not on.')); el0.textContent = parts.join(' '); btn.hidden = !!ok || !sm.persist;
     }, function () { el0.textContent = parts.join(' '); });
-  } else { parts.push('Browser protection isn’t available here.'); el0.textContent = parts.join(' '); btn.hidden = true; }
+  } else { parts.push(t('Browser protection isn’t available here.')); el0.textContent = parts.join(' '); btn.hidden = true; }
 }
 function tryPersist() { if (persistTried) return; persistTried = true; try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(storeStatus, function () {}); } catch (e) {} }
 $('persistBtn').addEventListener('click', function () {
-  try { navigator.storage.persist().then(function (ok) { $('persistMsg').textContent = ok ? 'Done' : 'The browser said no. A backup file is the safest option.'; storeStatus(); setTimeout(function () { $('persistMsg').textContent = ''; }, 4000); }); } catch (e) {}
+  try { navigator.storage.persist().then(function (ok) { $('persistMsg').textContent = ok ? t('Done') : t('The browser said no. A backup file is the safest option.'); storeStatus(); setTimeout(function () { $('persistMsg').textContent = ''; }, 4000); }); } catch (e) {}
 });
 function renderSnaps() {
   var box = $('snapList'); if (!box) return; box.textContent = '';
-  if (!snapCache.length) { box.appendChild(el('p', 'hint', 'No automatic copies yet. One is saved about once an hour while you log.')); return; }
+  if (!snapCache.length) { box.appendChild(el('p', 'hint', t('No automatic copies yet. One is saved about once an hour while you log.'))); return; }
   snapCache.slice(0, 8).forEach(function (sn) {
-    var r = el('div', 'snaprow'); r.appendChild(el('span', '', fmtWhen(sn.at) + ' · ' + sn.n + ' entries' + (sn.label ? ' · ' + sn.label : '')));
-    var b = el('button', 'btn', 'Check'); b.type = 'button'; b.addEventListener('click', function () { startRestore(JSON.stringify({ log: sn.log, settings: sn.settings })); }); r.appendChild(b); box.appendChild(r);
+    var r = el('div', 'snaprow'); r.appendChild(el('span', '', fmtWhen(sn.at) + ' · ' + tn(sn.n, '{n} entry', '{n} entries') + (sn.label ? ' · ' + t(sn.label) : '')));
+    var b = el('button', 'btn', t('Check')); b.type = 'button'; b.addEventListener('click', function () { startRestore(JSON.stringify({ log: sn.log, settings: sn.settings })); }); r.appendChild(b); box.appendChild(r);
   });
 }
 
@@ -1044,23 +1077,23 @@ function startRestore(text) {
   var d, msg = $('backupMsg');
   try { d = JSON.parse(text); } catch (e) { d = null; }
   if (isEncryptedBackup(d)) { askUnlock(d); return; }
-  if (!d || !Array.isArray(d.log)) { msg.textContent = 'That doesn’t look like a backup.'; setTimeout(function () { msg.textContent = ''; }, 3500); return; }
+  if (!d || !Array.isArray(d.log)) { msg.textContent = t('That doesn’t look like a backup.'); setTimeout(function () { msg.textContent = ''; }, 3500); return; }
   $('unlockBox').hidden = true;
   var have = {}; log.forEach(function (x) { have[x.id] = 1; });
   var m = migrateLog(d.log, +d.schema || 1), fresh = [], dup = 0, bad = m.dropped;
   m.log.forEach(function (x) { if (have[x.id]) dup++; else fresh.push(x); });
   pendingRestore = { fresh: fresh, settings: (d.settings && typeof d.settings === 'object') ? d.settings : null };
-  var line = 'Found ' + d.log.length + ' entries' + (d.exportedAt ? ', exported ' + new Date(d.exportedAt).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : '') + '. ' + fresh.length + ' new, ' + dup + ' already here' + (bad ? ', ' + bad + ' skipped' : '') + '.';
+  var line = tn(d.log.length, 'Found {n} entry', 'Found {n} entries') + (d.exportedAt ? ', ' + t('exported {date}', { date: fmtDate(d.exportedAt, { day: 'numeric', month: 'short', year: 'numeric' }) }) : '') + '. ' + t('{a} new, {b} already here', { a: fresh.length, b: dup }) + (bad ? ', ' + t('{n} skipped', { n: bad }) : '') + '.';
   $('restorePrevText').textContent = line;
   $('restoreSetRow').hidden = !pendingRestore.settings; $('restoreSettings').checked = !!pendingRestore.settings;
-  $('restoreGo').textContent = fresh.length ? 'Add ' + fresh.length + (fresh.length === 1 ? ' entry' : ' entries') : (pendingRestore.settings ? 'Restore settings' : 'Nothing to add');
+  $('restoreGo').textContent = fresh.length ? tn(fresh.length, 'Add {n} entry', 'Add {n} entries') : (pendingRestore.settings ? t('Restore settings') : t('Nothing to add'));
   $('restoreGo').disabled = !fresh.length && !pendingRestore.settings;
   $('restorePrev').hidden = false;
 }
 $('restoreBtn').addEventListener('click', function () { startRestore($('restoreBox').value); });
 $('restoreFile').addEventListener('change', function () {
   var f = this.files && this.files[0]; if (!f) return;
-  var rd = new FileReader(); rd.onload = function () { startRestore(String(rd.result || '')); }; rd.onerror = function () { $('backupMsg').textContent = 'Couldn’t read that file.'; };
+  var rd = new FileReader(); rd.onload = function () { startRestore(String(rd.result || '')); }; rd.onerror = function () { $('backupMsg').textContent = t('Couldn’t read that file.'); };
   rd.readAsText(f); this.value = '';
 });
 $('restoreCancel').addEventListener('click', function () { pendingRestore = null; $('restorePrev').hidden = true; });
@@ -1072,10 +1105,10 @@ function askUnlock(d) {
 function unlock() {
   if (!lockedBackup) return;
   var d = lockedBackup;
-  $('unlockGo').disabled = true; $('unlockMsg').textContent = 'Unlocking…';
+  $('unlockGo').disabled = true; $('unlockMsg').textContent = t('Unlocking…');
   decryptBackup(d, $('unlockPass').value).then(function (text) {
     lockedBackup = null; $('unlockPass').value = ''; $('unlockBox').hidden = true; startRestore(text);
-  }, function () { $('unlockMsg').textContent = 'That password doesn’t match this backup.'; $('unlockPass').select(); })
+  }, function () { $('unlockMsg').textContent = t('That password doesn’t match this backup.'); $('unlockPass').select(); })
     .then(function () { $('unlockGo').disabled = false; });
 }
 $('unlockGo').addEventListener('click', unlock);
@@ -1084,12 +1117,12 @@ $('unlockCancel').addEventListener('click', function () { lockedBackup = null; $
 $('restoreGo').addEventListener('click', function () {
   if (!pendingRestore) return;
   var pr = pendingRestore; pendingRestore = null;
-  maybeSnapshot(true, 'Before restore').then(function () {
+  maybeSnapshot(true, k('Before restore')).then(function () {
     pr.fresh.forEach(function (x) { log.push(x); });
     if (pr.settings && $('restoreSettings').checked) settings = sanitizeSettings(pr.settings, settings);
     rangeDays = settings.range; reportDays = rangeDays > 7 ? 7 : rangeDays;
     save(); render(); syncSettings(); $('restoreBox').value = ''; $('restorePrev').hidden = true;
-    backupMsgFlash(pr.fresh.length + ' ' + (pr.fresh.length === 1 ? 'entry' : 'entries') + ' added');
+    backupMsgFlash(tn(pr.fresh.length, '{n} entry added', '{n} entries added'));
   });
 });
 // Another tab saved: pick up its entries instead of overwriting them on our next save.
@@ -1114,6 +1147,7 @@ window.addEventListener('pagehide', flushNote);
 function syncSettings() {
   each('[data-unit]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-unit') === settings.unit ? 'true' : 'false'); });
   each('[data-clock]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-clock') === settings.clock ? 'true' : 'false'); });
+  each('[data-lang]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-lang') === currentLang() ? 'true' : 'false'); });
   each('[data-remind]', function (b) { b.setAttribute('aria-pressed', +b.getAttribute('data-remind') === settings.remindAfter ? 'true' : 'false'); });
   $('remindNotify').setAttribute('aria-pressed', settings.remindNotify ? 'true' : 'false');
   each('[data-toggle]', function (b) { var k = b.getAttribute('data-toggle'); b.setAttribute('aria-pressed', (k === 'askSize' ? settings.askSize !== false : !!settings[k]) ? 'true' : 'false'); });
@@ -1122,7 +1156,25 @@ function syncSettings() {
   backupStatus(); renderTrash(); storeStatus(); renderSnaps();
 }
 
-testStorage(); load(); $('storageWarn').hidden = storageOk; $('loadWarn').hidden = !loadProblem; syncSettings(); render();
+var langPrefs = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || 'en'];
+function langCode() { return isLang(settings.lang) ? settings.lang : detectLang(langPrefs); }
+function applyLanguage() {
+  translatePage(document.body);
+  ['langMsg', 'reportMsg', 'notifyMsg', 'persistMsg', 'backupMsg', 'exportMsg', 'unlockMsg'].forEach(function (id) { $(id).textContent = ''; });
+  $('whenText').textContent = whenLabel();
+  syncSettings(); hideBar(); render();
+  if (sheetId) { var se = find(sheetId); if (se) openSheet(se); }
+}
+each('[data-lang]', function (b) {
+  b.addEventListener('click', function () {
+    settings.lang = b.getAttribute('data-lang'); save();
+    setLang(settings.lang, langPrefs).then(applyLanguage, function () { $('langMsg').textContent = t('That language couldn’t be loaded. Try again when you’re online.'); });
+  });
+});
+
+testStorage(); load(); $('storageWarn').hidden = storageOk; $('loadWarn').hidden = !loadProblem;
+try { await setLang(langCode(), langPrefs); } catch (e) { await setLang('en', langPrefs); }
+translatePage(document.body); syncSettings(); render();
 idbOpen(function (ok) { if (ok) detectLoss(); else storeStatus(); });
 try {
   if (window.ResizeObserver) {
@@ -1137,7 +1189,7 @@ function checkReminder() {
   var now = Date.now(), due = now < remindSnooze ? null : drinkReminder(sorted(), now, settings.remindAfter, isNight, isAsleep());
   $('remindBar').hidden = !due;
   if (!due) return;
-  var text = (due.drank ? 'It’s been ' + fmtDur(now - due.since) + ' since your last drink.' : 'You haven’t logged a drink for ' + fmtDur(now - due.since) + '.') + ' Time for some water?';
+  var text = (due.drank ? t('It’s been {d} since your last drink.', { d: fmtDur(now - due.since) }) : t('You haven’t logged a drink for {d}.', { d: fmtDur(now - due.since) })) + ' ' + t('Time for some water?');
   $('remindText').textContent = text;
   if (settings.remindNotify && notifiedFor !== due.since && document.visibilityState === 'hidden' && window.Notification && Notification.permission === 'granted') {
     notifiedFor = due.since;
@@ -1154,10 +1206,10 @@ each('[data-remind]', function (b) {
 $('remindNotify').addEventListener('click', function () {
   var msg = $('notifyMsg');
   if (settings.remindNotify) { settings.remindNotify = false; save(); syncSettings(); return; }
-  if (!window.Notification) { msg.textContent = 'This browser can’t show notifications. On iPhone, install the app to the home screen first.'; return; }
+  if (!window.Notification) { msg.textContent = t('This browser can’t show notifications. On iPhone, install the app to the home screen first.'); return; }
   Notification.requestPermission().then(function (p) {
     settings.remindNotify = p === 'granted'; save(); syncSettings();
-    msg.textContent = p === 'granted' ? '' : 'Notifications are blocked for this app in your browser settings.';
+    msg.textContent = p === 'granted' ? '' : t('Notifications are blocked for this app in your browser settings.');
   });
 });
 

@@ -1,9 +1,10 @@
 /* Drink & Pass Journal service worker: keeps the app working offline. Entries are never touched here. */
 // Bump VERSION with every release (scripts/check-release.mjs enforces it matches package.json).
-var VERSION = '1.2.0';
+var VERSION = '1.3.0';
 var CACHE = 'dp-shell-' + VERSION;
 var SHELL = [
-  './', './index.html', './css/app.css', './js/app.js', './js/core.js', './js/crypto.js', './js/fhir.js',
+  './', './index.html', './css/app.css', './js/app.js', './js/core.js', './js/crypto.js', './js/fhir.js', './js/i18n.js',
+  './js/i18n/de.js', './js/i18n/es.js', './js/i18n/fr.js', './js/i18n/it.js', './js/i18n/nl.js', './js/i18n/pt.js', './js/i18n/zh.js',
   './fonts/bricolage-grotesque-latin.woff2', './fonts/bricolage-grotesque-latin-ext.woff2',
   './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png',
   './icons/apple-touch-icon.png', './icons/favicon-32.png'
