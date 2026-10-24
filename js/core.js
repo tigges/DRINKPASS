@@ -122,8 +122,54 @@ export function periodStats(sorted, a, b, isNight) {
   return st;
 }
 
+/**
+ * Frequency-volume summary per day (the standard bladder diary layout).
+ * `days` is [{ start, items }]; volumes only count entries that have a size.
+ */
+export function fvSummary(days, isNight) {
+  var rows = days.map(function (d) {
+    var r = { start: d.start, intakeMl: 0, drinks: 0, passes: 0, nightPasses: 0, outMl: 0, nightMl: 0, sized: 0, maxMl: 0 };
+    d.items.forEach(function (x) {
+      if (x.type === 'drink') { r.drinks++; if (x.size) r.intakeMl += x.size.ml; }
+      else if (x.type === 'pass') {
+        var n = isNight(x.t); r.passes++; if (n) r.nightPasses++;
+        if (x.size) { r.sized++; r.outMl += x.size.ml; if (n) r.nightMl += x.size.ml; r.maxMl = Math.max(r.maxMl, x.size.ml); }
+      }
+    });
+    r.meanMl = r.sized ? r.outMl / r.sized : 0;
+    return r;
+  });
+  var n = rows.length || 1, tot = function (k) { return rows.reduce(function (a, r) { return a + r[k]; }, 0); };
+  var sized = tot('sized');
+  return {
+    rows: rows,
+    average: { intakeMl: tot('intakeMl') / n, passes: tot('passes') / n, nightPasses: tot('nightPasses') / n, outMl: tot('outMl') / n, nightMl: tot('nightMl') / n,
+      maxMl: Math.max.apply(null, [0].concat(rows.map(function (r) { return r.maxMl; }))), meanMl: sized ? tot('outMl') / sized : 0 }
+  };
+}
+
+/**
+ * Whether to suggest a drink: `hours` since the last drink (or since waking, if later),
+ * only while awake, outside night hours, and only for someone actively logging today.
+ */
+export function drinkReminder(sorted, now, hours, isNight, asleep) {
+  if (!hours || asleep || isNight(now)) return null;
+  var lastDrink = null, lastWake = null, lastAny = null;
+  for (var i = sorted.length - 1; i >= 0; i--) {
+    var x = sorted[i]; if (x.t > now) continue;
+    if (lastAny === null) lastAny = x.t;
+    if (lastDrink === null && x.type === 'drink') lastDrink = x.t;
+    if (lastWake === null && x.type === 'wake') lastWake = x.t;
+    if (lastDrink !== null && lastWake !== null) break;
+  }
+  if (lastAny === null || now - lastAny > 16 * H) return null;
+  var since = Math.max(lastDrink === null ? -Infinity : lastDrink, lastWake === null ? -Infinity : lastWake);
+  if (since === -Infinity) since = lastAny;
+  return now - since >= hours * H ? { since: since, drank: since === lastDrink } : null;
+}
+
 export var SCHEMA = 2;
-export var DEFAULT_SETTINGS = { unit: 'ml', nightStart: '22:00', nightEnd: '06:00', askSize: true, showUrgency: true, showKind: true, range: 1, dotScale: 'same', trackSolid: false, showBristol: false, compare: false };
+export var DEFAULT_SETTINGS = { unit: 'ml', nightStart: '22:00', nightEnd: '06:00', askSize: true, showUrgency: true, showKind: true, range: 1, dotScale: 'same', trackSolid: false, showBristol: false, compare: false, remindAfter: 0, remindNotify: false };
 var SIZE_LABELS = ['small', 'medium', 'large', 'exact'];
 var TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 var EARLIEST = Date.UTC(2000, 0, 1);
@@ -160,6 +206,8 @@ export function sanitizeSettings(q, base) {
   ['askSize', 'showUrgency', 'showKind', 'trackSolid', 'showBristol', 'compare'].forEach(function (k) { if (typeof q[k] === 'boolean') out[k] = q[k]; });
   if ([1, 3, 7, 14, 30].indexOf(+q.range) > -1) out.range = +q.range;
   if (q.dotScale === 'same' || q.dotScale === 'amount') out.dotScale = q.dotScale;
+  if ([0, 2, 3, 4].indexOf(+q.remindAfter) > -1) out.remindAfter = +q.remindAfter;
+  if (typeof q.remindNotify === 'boolean') out.remindNotify = q.remindNotify;
   return out;
 }
 /**

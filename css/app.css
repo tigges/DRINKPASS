@@ -254,5 +254,10 @@ svg.ic.sm { width: 16px; height: 16px; }
 .filebtn { display: inline-flex; align-items: center; }
 .strong { font-weight: 600; }
 .setrow.last { margin-bottom: 0; }
+#backupPass, #unlockPass { min-width: 12em; height: 44px; }
+table.rep.fv { margin-top: 14px; }
+table.rep.fv caption { text-align: left; font-weight: 600; padding: 0 8px 6px; }
+table.rep.fv td:not(:first-child), table.rep.fv th:not(:first-child) { text-align: right; }
+.fvnote { margin: 6px 8px 0; }
 .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .scrim { position: fixed; inset: 0; z-index: 55; background: rgba(14, 42, 59, .35); }

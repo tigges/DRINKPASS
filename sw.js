@@ -3,7 +3,7 @@
 var VERSION = '1.1.0';
 var CACHE = 'dp-shell-' + VERSION;
 var SHELL = [
-  './', './index.html', './css/app.css', './js/app.js', './js/core.js',
+  './', './index.html', './css/app.css', './js/app.js', './js/core.js', './js/crypto.js', './js/fhir.js',
   './fonts/bricolage-grotesque-latin.woff2', './fonts/bricolage-grotesque-latin-ext.woff2',
   './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png',
   './icons/apple-touch-icon.png', './icons/favicon-32.png'

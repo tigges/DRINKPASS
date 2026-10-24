@@ -50,6 +50,11 @@
     <span class="acts"><button type="button" id="updateNow">Update</button></span>
   </div>
 
+  <div class="warn nudge" id="remindBar" role="status" hidden>
+    <span id="remindText"></span>
+    <span class="acts"><button type="button" id="remindLog">Log a drink</button><button type="button" id="remindLater">Later</button></span>
+  </div>
+
   <div class="warn nudge" id="recover" role="alert" hidden>
     <span id="recoverText"></span>
     <span class="acts"><button type="button" id="recoverNow">Restore</button><button type="button" id="recoverLater">Not now</button></span>
@@ -183,6 +188,7 @@
     </div>
     <div class="printonly reptitle" id="reportTitle"></div>
     <div id="reportChart"></div>
+    <section class="scroll" id="reportFv" aria-label="Frequency and volume" tabindex="0"></section>
     <div class="scroll" id="reportTable"></div>
     <div class="setrow noprint">
       <button class="btn" id="dlCsv" type="button">Download CSV</button>
@@ -225,6 +231,15 @@
     <div class="setrow"><label for="nightStart">Night starts</label><input class="timein" id="nightStart" type="time" value="22:00"></div>
     <div class="setrow"><label for="nightEnd">Night ends</label><input class="timein" id="nightEnd" type="time" value="06:00"></div>
     <p class="hint">Tapping the moon (going to bed) and sun (up for the day) defines your night instead. These hours are the fallback when you haven’t marked sleep.</p>
+    <div class="sech">Drink reminders</div>
+    <div class="setrow" role="group" aria-label="Remind me to drink after">
+      <button class="chip" type="button" data-remind="0" aria-pressed="true">Off</button>
+      <button class="chip" type="button" data-remind="2" aria-pressed="false">After 2 h</button>
+      <button class="chip" type="button" data-remind="3" aria-pressed="false">After 3 h</button>
+      <button class="chip" type="button" data-remind="4" aria-pressed="false">After 4 h</button>
+    </div>
+    <div class="setrow"><button class="chip" type="button" id="remindNotify" aria-pressed="false">Also send a notification</button><span id="notifyMsg" class="hint"></span></div>
+    <p class="hint tight">A gentle prompt when you haven’t had a drink for a while, during the day only. It shows while the app is open or in the background; phones may not deliver it once the app is closed.</p>
     <div class="sech">Storage</div>
     <p class="hint lead" id="storeStatus"></p>
     <div class="setrow"><button class="btn" id="persistBtn" type="button" hidden>Ask the browser to keep my data</button><span id="persistMsg" class="hint"></span></div>
@@ -233,17 +248,27 @@
 
     <div class="sech">Backup</div>
     <p class="hint lead" id="lastBackup"></p>
+    <div class="setrow"><label for="backupPass">Password (optional)</label><input class="timein" id="backupPass" type="password" autocomplete="new-password" placeholder="For an encrypted backup"></div>
+    <p class="hint tight">With a password, the backup file is encrypted and can only be restored with that password. There is no way to recover a forgotten password.</p>
     <div class="setrow"><button class="btn" id="dlBackup" type="button">Download backup</button><button class="btn" id="copyBackup" type="button">Copy backup</button><span id="backupMsg" class="hint"></span></div>
     <div class="setrow"><label class="btn filebtn" for="restoreFile">Restore from file</label><input class="vh" id="restoreFile" type="file" accept=".json,application/json,text/plain"></div>
     <label class="strong" for="restoreBox">Or paste a backup</label>
     <textarea id="restoreBox" placeholder="Paste a backup here"></textarea>
     <div class="setrow"><button class="btn" id="restoreBtn" type="button">Check backup</button></div>
+    <div class="panelbox" id="unlockBox" hidden>
+      <label class="strong" for="unlockPass">This backup is password protected</label>
+      <div class="setrow last"><input class="timein" id="unlockPass" type="password" autocomplete="current-password"><button class="btn primary" id="unlockGo" type="button">Unlock</button><button class="btn" id="unlockCancel" type="button">Cancel</button></div>
+      <p class="hint" id="unlockMsg"></p>
+    </div>
     <div class="panelbox" id="restorePrev" hidden>
       <div id="restorePrevText"></div>
       <label class="chk" id="restoreSetRow"><input type="checkbox" id="restoreSettings" checked>Also restore the settings from this backup</label>
       <div class="setrow last"><button class="btn primary" id="restoreGo" type="button">Add entries</button><button class="btn" id="restoreCancel" type="button">Cancel</button></div>
     </div>
     <p class="hint" id="installTip">To install: in Safari tap Share, then Add to Home Screen. In Chrome open the menu and choose Install app. Restore your backup from inside the installed app, because the browser tab and the installed app keep separate storage on iPhone.</p>
+    <div class="sech">Export everything</div>
+    <div class="setrow"><button class="btn" id="exportCsv" type="button">Download all as CSV</button><button class="btn" id="exportFhir" type="button">Download for health records (FHIR)</button><span id="exportMsg" class="hint"></span></div>
+    <p class="hint tight">CSV opens in spreadsheet apps. FHIR is a standard health-data format that some record systems and apps can import. Both include every entry, not just recent days.</p>
     <div class="sech">Recently removed</div>
     <div id="trashList"></div>
     <p class="legal">This journal records what you enter. It isn’t medical advice. Entries stay in this browser on this device.</p>

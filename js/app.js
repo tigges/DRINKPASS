@@ -3,7 +3,10 @@ import {
   isSleep, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime, fmtDur, agoText, toLocalInput,
   sortEntries, between, sleepModel, sanitizeSettings, migrateLog, DEFAULT_SETTINGS, SCHEMA, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
   fmtVol as fmtVolIn
+  , fvSummary, drinkReminder
 } from './core.js';
+import { toFhirBundle } from './fhir.js';
+import { encryptBackup, decryptBackup, isEncryptedBackup } from './crypto.js';
 
 var KEY = 'drink-pass-log-v1', SKEY = 'drink-pass-settings-v1', BKEY = 'drink-pass-backup-v1', TKEY = 'drink-pass-trash-v1', MKEY = 'drink-pass-schema';
 var NS = 'http://www.w3.org/2000/svg';
@@ -704,6 +707,23 @@ function buildDiaryChart(box, data) {
   li('', 'background:var(--drink)', 'Drink'); li('', 'background:var(--pass)', 'Pass'); if (solidLane) li('solidkey', '', 'Solid'); li('band', '', 'Night'); li('ring', '', 'No size');
   box.appendChild(lg);
 }
+function buildFvTable(box, data) {
+  box.textContent = '';
+  var fv = fvSummary(data, isNight), t = el('table', 'rep fv');
+  t.appendChild(el('caption', '', 'Frequency and volume'));
+  var head = t.createTHead().insertRow();
+  ['Day', 'Drinks in', 'Passes (night)', 'Passed out', 'Night out', 'Largest', 'Average'].forEach(function (h) { var th = document.createElement('th'); th.scope = 'col'; th.textContent = h; head.appendChild(th); });
+  var tb = t.createTBody(), v = function (ml) { return ml ? fmtVol(ml) : '–'; };
+  function row(label, r, cls) {
+    var tr = tb.insertRow(); if (cls) tr.className = cls;
+    var th = document.createElement('th'); th.scope = 'row'; th.textContent = label; tr.appendChild(th);
+    [v(r.intakeMl), (Math.round(r.passes * 10) / 10) + ' (' + (Math.round(r.nightPasses * 10) / 10) + ')', v(r.outMl), v(r.nightMl), v(r.maxMl), v(r.meanMl)].forEach(function (c) { tr.insertCell().textContent = c; });
+  }
+  fv.rows.forEach(function (r) { row(new Date(r.start).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }), r); });
+  if (fv.rows.length > 1) row('Daily average', fv.average, 'tot');
+  box.appendChild(t);
+  box.appendChild(el('p', 'hint fvnote', 'Night counts passes during your marked sleep or night hours. Volumes only include entries with a size; average is per pass with a size.'));
+}
 function renderReport() {
   each('[data-days]', function (c) { c.setAttribute('aria-pressed', +c.getAttribute('data-days') === reportDays ? 'true' : 'false'); });
   var data = reportData(), box = $('reportTable'); box.textContent = '';
@@ -713,6 +733,7 @@ function renderReport() {
   ttl.appendChild(el('div', 'hint', data.length === 1 ? fd(data[0].start) : fd(data[0].start) + ' to ' + fd(data[data.length - 1].start)));
   ttl.appendChild(el('div', 'hint', 'Times are local. Volumes in ' + (settings.unit === 'oz' ? 'fl oz' : 'ml') + '. Sizes are estimates unless measured.'));
   buildDiaryChart($('reportChart'), data);
+  buildFvTable($('reportFv'), data);
   var t = document.createElement('table'); t.className = 'rep'; t.style.marginTop = '12px';
   var head = t.createTHead().insertRow();
   ['Time', 'Drink in', 'Pass out'].forEach(function (hh) { var th = document.createElement('th'); th.textContent = hh; head.appendChild(th); });
@@ -750,17 +771,22 @@ function csv() {
   var items = []; reportData().forEach(function (d) { items = items.concat(d.items); });
   return toCsv(items, isNight);
 }
+/** Copies text, or the text a promise resolves to (e.g. an encrypted backup) without losing the tap that started it. */
 function copyText(text, msgEl, okMsg, onOk) {
   function done(ok) { msgEl.textContent = ok ? okMsg : 'Copy failed. Select and copy manually.'; if (ok && onOk) onOk(); setTimeout(function () { msgEl.textContent = ''; }, 2500); }
-  function fallback() {
-    try { var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  function fallback(t) {
+    try { var ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
       document.body.appendChild(ta); ta.select(); var ok = document.execCommand('copy'); document.body.removeChild(ta); done(ok); }
     catch (e) { done(false); }
   }
+  var pending = Promise.resolve(text), cb = navigator.clipboard;
   try {
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
-    else fallback();
-  } catch (e) { fallback(); }
+    if (typeof text !== 'string' && cb && cb.write && window.ClipboardItem) {
+      var item = new ClipboardItem({ 'text/plain': pending.then(function (t) { return new Blob([t], { type: 'text/plain' }); }) });
+      cb.write([item]).then(function () { done(true); }, function () { pending.then(fallback, function () { done(false); }); });
+    } else if (cb && cb.writeText) pending.then(function (t) { return cb.writeText(t).then(function () { done(true); }, function () { fallback(t); }); }, function () { done(false); });
+    else pending.then(fallback, function () { done(false); });
+  } catch (e) { pending.then(fallback, function () { done(false); }); }
 }
 function saveFile(name, data, msgEl, onOk) {
   downloadFile({ filename: name, data: data }).then(function () { msgEl.textContent = 'Saved'; if (onOk) onOk(); setTimeout(function () { msgEl.textContent = ''; }, 2500); },
@@ -769,7 +795,7 @@ function saveFile(name, data, msgEl, onOk) {
 function stamp() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 
 function render() {
-  refreshSleep(); syncSleepBtn(); renderStats(); renderList(); updateNudge();
+  refreshSleep(); syncSleepBtn(); renderStats(); renderList(); updateNudge(); checkReminder();
   if (!$('insightsSheet').hidden) renderInsights();
   if (!$('reportSheet').hidden) renderReport();
 }
@@ -891,8 +917,18 @@ each('[data-dots]', function (b) {
 $('nightStart').addEventListener('change', function () { if (this.value) { settings.nightStart = this.value; save(); render(); } });
 $('nightEnd').addEventListener('change', function () { if (this.value) { settings.nightEnd = this.value; save(); render(); } });
 function backupText() { return JSON.stringify({ version: 1, schema: 2, app: 'drink-pass-journal', exportedAt: new Date().toISOString(), count: log.length, log: log, settings: settings }); }
-$('copyBackup').addEventListener('click', function () { copyText(backupText(), $('backupMsg'), 'Backup copied', markBackup); });
-$('dlBackup').addEventListener('click', function () { saveFile('drink-pass-backup-' + stamp() + '.json', backupText(), $('backupMsg'), markBackup); });
+function protectedBackup() {
+  var pass = $('backupPass').value;
+  return pass ? encryptBackup(backupText(), pass) : Promise.resolve(backupText());
+}
+function backupError() { backupMsgFlash('Couldn’t encrypt the backup in this browser.'); }
+$('copyBackup').addEventListener('click', function () { copyText($('backupPass').value ? protectedBackup() : backupText(), $('backupMsg'), 'Backup copied', markBackup); });
+$('dlBackup').addEventListener('click', function () {
+  var locked = !!$('backupPass').value;
+  protectedBackup().then(function (t) { saveFile('drink-pass-backup-' + stamp() + (locked ? '-encrypted' : '') + '.json', t, $('backupMsg'), markBackup); }, backupError);
+});
+$('exportCsv').addEventListener('click', function () { saveFile('drink-pass-all-' + stamp() + '.csv', toCsv(sorted(), isNight), $('exportMsg')); });
+$('exportFhir').addEventListener('click', function () { saveFile('drink-pass-fhir-' + stamp() + '.json', JSON.stringify(toFhirBundle(sorted(), isNight), null, 1), $('exportMsg')); });
 
 // ---------- safer storage: automatic copies, recovery, checked restore ----------
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -1001,7 +1037,10 @@ function renderSnaps() {
 
 function startRestore(text) {
   var d, msg = $('backupMsg');
-  try { d = JSON.parse(text); if (!d || !Array.isArray(d.log)) throw new Error('bad'); } catch (e) { msg.textContent = 'That doesn’t look like a backup.'; setTimeout(function () { msg.textContent = ''; }, 3500); return; }
+  try { d = JSON.parse(text); } catch (e) { d = null; }
+  if (isEncryptedBackup(d)) { askUnlock(d); return; }
+  if (!d || !Array.isArray(d.log)) { msg.textContent = 'That doesn’t look like a backup.'; setTimeout(function () { msg.textContent = ''; }, 3500); return; }
+  $('unlockBox').hidden = true;
   var have = {}; log.forEach(function (x) { have[x.id] = 1; });
   var m = migrateLog(d.log, +d.schema || 1), fresh = [], dup = 0, bad = m.dropped;
   m.log.forEach(function (x) { if (have[x.id]) dup++; else fresh.push(x); });
@@ -1020,6 +1059,23 @@ $('restoreFile').addEventListener('change', function () {
   rd.readAsText(f); this.value = '';
 });
 $('restoreCancel').addEventListener('click', function () { pendingRestore = null; $('restorePrev').hidden = true; });
+var lockedBackup = null;
+function askUnlock(d) {
+  lockedBackup = d; pendingRestore = null; $('restorePrev').hidden = true;
+  $('unlockMsg').textContent = ''; $('unlockPass').value = ''; $('unlockBox').hidden = false; $('unlockPass').focus();
+}
+function unlock() {
+  if (!lockedBackup) return;
+  var d = lockedBackup;
+  $('unlockGo').disabled = true; $('unlockMsg').textContent = 'Unlocking…';
+  decryptBackup(d, $('unlockPass').value).then(function (text) {
+    lockedBackup = null; $('unlockPass').value = ''; $('unlockBox').hidden = true; startRestore(text);
+  }, function () { $('unlockMsg').textContent = 'That password doesn’t match this backup.'; $('unlockPass').select(); })
+    .then(function () { $('unlockGo').disabled = false; });
+}
+$('unlockGo').addEventListener('click', unlock);
+$('unlockPass').addEventListener('keydown', function (e) { if (e.key === 'Enter') unlock(); });
+$('unlockCancel').addEventListener('click', function () { lockedBackup = null; $('unlockBox').hidden = true; });
 $('restoreGo').addEventListener('click', function () {
   if (!pendingRestore) return;
   var pr = pendingRestore; pendingRestore = null;
@@ -1052,6 +1108,8 @@ window.addEventListener('pagehide', flushNote);
 
 function syncSettings() {
   each('[data-unit]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-unit') === settings.unit ? 'true' : 'false'); });
+  each('[data-remind]', function (b) { b.setAttribute('aria-pressed', +b.getAttribute('data-remind') === settings.remindAfter ? 'true' : 'false'); });
+  $('remindNotify').setAttribute('aria-pressed', settings.remindNotify ? 'true' : 'false');
   each('[data-toggle]', function (b) { var k = b.getAttribute('data-toggle'); b.setAttribute('aria-pressed', (k === 'askSize' ? settings.askSize !== false : !!settings[k]) ? 'true' : 'false'); });
   each('[data-dots]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-dots') === (settings.dotScale || 'same') ? 'true' : 'false'); });
   $('nightStart').value = settings.nightStart; $('nightEnd').value = settings.nightEnd;
@@ -1066,7 +1124,36 @@ try {
     ro.observe($('list'));
   }
 } catch (e) {}
-setInterval(function () { refreshSleep(); renderStats(); if (!$('insightsSheet').hidden && rangeDays === 1) renderInsights(); updateNudge(); }, 30000);
+setInterval(function () { refreshSleep(); renderStats(); if (!$('insightsSheet').hidden && rangeDays === 1) renderInsights(); updateNudge(); checkReminder(); }, 30000);
+
+var remindSnooze = 0, notifiedFor = null;
+function checkReminder() {
+  var now = Date.now(), due = now < remindSnooze ? null : drinkReminder(sorted(), now, settings.remindAfter, isNight, isAsleep());
+  $('remindBar').hidden = !due;
+  if (!due) return;
+  var text = (due.drank ? 'It’s been ' + fmtDur(now - due.since) + ' since your last drink.' : 'You haven’t logged a drink for ' + fmtDur(now - due.since) + '.') + ' Time for some water?';
+  $('remindText').textContent = text;
+  if (settings.remindNotify && notifiedFor !== due.since && document.visibilityState === 'hidden' && window.Notification && Notification.permission === 'granted') {
+    notifiedFor = due.since;
+    navigator.serviceWorker.getRegistration().then(function (reg) {
+      if (reg) reg.showNotification('Drink & Pass', { body: text, tag: 'drink-reminder', icon: 'icons/icon-192.png' });
+    }).catch(function () {});
+  }
+}
+$('remindLog').addEventListener('click', function () { addEntry('drink'); });
+$('remindLater').addEventListener('click', function () { remindSnooze = Date.now() + 3600000; checkReminder(); });
+each('[data-remind]', function (b) {
+  b.addEventListener('click', function () { settings.remindAfter = +b.getAttribute('data-remind'); save(); syncSettings(); checkReminder(); });
+});
+$('remindNotify').addEventListener('click', function () {
+  var msg = $('notifyMsg');
+  if (settings.remindNotify) { settings.remindNotify = false; save(); syncSettings(); return; }
+  if (!window.Notification) { msg.textContent = 'This browser can’t show notifications. On iPhone, install the app to the home screen first.'; return; }
+  Notification.requestPermission().then(function (p) {
+    settings.remindNotify = p === 'granted'; save(); syncSettings();
+    msg.textContent = p === 'granted' ? '' : 'Notifications are blocked for this app in your browser settings.';
+  });
+});
 
 function downloadFile(opts) {
   var name = opts.filename, type = /\.json$/i.test(name) ? 'application/json' : /\.csv$/i.test(name) ? 'text/csv' : 'text/plain';
