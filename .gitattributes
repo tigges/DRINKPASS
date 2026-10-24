@@ -1,0 +1,2 @@
+# sw.js checks the exact bytes of each app file, so checkouts must not rewrite line endings.
+* text=auto eol=lf
