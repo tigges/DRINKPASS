@@ -1,9 +1,8 @@
-// Checks that the service worker precaches every app file and that its VERSION matches package.json.
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+// Checks that sw.js lists every app file with its current hash and that its VERSION matches package.json.
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { root, manifest, stampBlock } from './shell-files.mjs';
 
-const root = fileURLToPath(new URL('..', import.meta.url));
 const sw = readFileSync(join(root, 'sw.js'), 'utf8');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const problems = [];
@@ -11,15 +10,8 @@ const problems = [];
 const version = /var VERSION = '([^']+)'/.exec(sw)?.[1];
 if (version !== pkg.version) problems.push(`sw.js VERSION is ${version}, package.json version is ${pkg.version}`);
 
-const shellSrc = /var SHELL = \[([\s\S]*?)\];/.exec(sw)?.[1] ?? '';
-const shell = [...shellSrc.matchAll(/'\.\/([^']*)'/g)].map((m) => m[1]).filter(Boolean);
-for (const f of shell) if (!existsSync(join(root, f))) problems.push(`sw.js precaches missing file ${f}`);
-
-const appFiles = ['index.html', 'manifest.webmanifest'];
-for (const dir of ['css', 'js', 'js/i18n', 'fonts', 'icons']) {
-  for (const f of readdirSync(join(root, dir))) if (/\.(css|js|woff2|png)$/.test(f)) appFiles.push(`${dir}/${f}`);
-}
-for (const f of appFiles) if (!shell.includes(f)) problems.push(`sw.js does not precache ${f}`);
+const m = manifest();
+if (!sw.includes(stampBlock(m))) problems.push('sw.js file hashes are out of date: run npm run stamp');
 
 if (problems.length) { console.error(problems.map((p) => '- ' + p).join('\n')); process.exit(1); }
-console.log(`Service worker ${version} precaches all ${shell.length} app files.`);
+console.log(`Service worker ${version} (build ${m.build}) precaches all ${Object.keys(m.files).length} app files with matching hashes.`);

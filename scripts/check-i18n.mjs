@@ -51,7 +51,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   for (const { code } of LANGS) {
     if (code === 'en') continue;
     if (!files.includes(code + '.js')) problems.push(`js/i18n/${code}.js: missing`);
-    if (!sw.includes(`'./js/i18n/${code}.js'`)) problems.push(`sw.js: ./js/i18n/${code}.js is not precached`);
+    if (!sw.includes(`'js/i18n/${code}.js': `)) problems.push(`sw.js: js/i18n/${code}.js is not precached (run npm run stamp)`);
   }
   for (const f of files) if (!LANGS.some((l) => l.code + '.js' === f)) problems.push(`js/i18n/${f}: not listed in LANGS`);
   for (const f of files) {

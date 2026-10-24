@@ -34,8 +34,8 @@ test('an error page is never cached as the app', async ({ page, context }) => {
   await expect(page.locator('#drinkBtn')).toBeVisible();
 });
 
-test('a new version waits for the user to tap Update', async ({ page }) => {
-  // A private copy of the app on its own port, so this test can publish a "new release".
+/** Runs `body` against a private, installed copy of the app on its own port, so a test can publish a "new release". */
+async function withRelease(page, body) {
   const dir = mkdtempSync(join(tmpdir(), 'dp-release-'));
   for (const f of ['index.html', 'sw.js', 'manifest.webmanifest', 'css', 'js', 'fonts', 'icons']) cpSync(join(ROOT, f), join(dir, f), { recursive: true });
   const port = 4300 + test.info().workerIndex;
@@ -47,22 +47,46 @@ test('a new version waits for the user to tap Update', async ({ page }) => {
     await page.evaluate(async () => { await navigator.serviceWorker.ready; });
     await page.reload();
     await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
-    await page.locator('#drinkBtn').click();
-
-    const sw = join(dir, 'sw.js');
-    writeFileSync(sw, readFileSync(sw, 'utf8').replace(/var VERSION = '[^']+'/, "var VERSION = 'test-next'"));
-    await page.evaluate(() => navigator.serviceWorker.getRegistration().then((r) => r.update()));
-    await expect(page.locator('#updateBar')).toBeVisible();
-    expect(await page.evaluate(() => caches.keys())).toContain('dp-shell-test-next');
-
-    await Promise.all([page.waitForEvent('load'), page.locator('#updateNow').click()]);
-    await expect.poll(() => page.evaluate(() => caches.keys())).toEqual(['dp-shell-test-next']);
-    await expect(page.locator('#updateBar')).toBeHidden();
-    expect(await stored(page)).toHaveLength(1);
+    const edit = (f, change) => writeFileSync(join(dir, f), change(readFileSync(join(dir, f), 'utf8')));
+    await body({ edit, publish: (v) => edit('sw.js', (s) => s.replace(/var VERSION = '[^']+'/, `var VERSION = '${v}'`)) });
   } finally {
     server.kill();
     rmSync(dir, { recursive: true, force: true });
   }
+}
+const checkForUpdate = (page) => page.evaluate(() => navigator.serviceWorker.getRegistration().then((r) => r.update()).catch(() => {}));
+const cacheNames = (page) => page.evaluate(() => caches.keys());
+
+test('a new version waits for the user to tap Update', async ({ page }) => {
+  await withRelease(page, async ({ publish }) => {
+    await page.locator('#drinkBtn').click();
+    publish('test-next');
+    await checkForUpdate(page);
+    await expect(page.locator('#updateBar')).toBeVisible();
+    expect((await cacheNames(page)).some((k) => k.startsWith('dp-shell-test-next-'))).toBe(true);
+
+    await Promise.all([page.waitForEvent('load'), page.locator('#updateNow').click()]);
+    await expect.poll(async () => (await cacheNames(page)).map((k) => k.replace(/-[0-9a-f]+$/, ''))).toEqual(['dp-shell-test-next']);
+    await expect(page.locator('#updateBar')).toBeHidden();
+    expect(await stored(page)).toHaveLength(1);
+  });
+});
+
+test('an update is refused while the server still sends a file from another release, then retried', async ({ page }) => {
+  await withRelease(page, async ({ edit, publish }) => {
+    const before = await cacheNames(page);
+    edit('css/app.css', (s) => s + '\n/* previous release */\n');
+    publish('test-next');
+    await checkForUpdate(page);
+    await page.waitForTimeout(1500);
+    await expect(page.locator('#updateBar')).toBeHidden();
+    expect(await cacheNames(page)).toEqual(before);
+    await expect(page.locator('#drinkBtn')).toBeVisible();
+
+    edit('css/app.css', (s) => s.replace('\n/* previous release */\n', ''));
+    await checkForUpdate(page);
+    await expect(page.locator('#updateBar')).toBeVisible();
+  });
 });
 
 test('home-screen shortcuts log once and clear the address', async ({ page }) => {

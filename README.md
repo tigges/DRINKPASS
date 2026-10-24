@@ -49,7 +49,7 @@ Tap **Download backup** now and then and save it to iCloud Drive or Google Drive
 ## Updating the app
 Push the new files to `main`. Open copies download the new version in the background and show **A new version of the app is ready**; tapping **Update** switches over. Nothing changes mid-session without that tap.
 
-When releasing, bump `version` in `package.json` and `VERSION` in `sw.js` together; `npm run lint` fails if they differ or if a file is missing from the offline cache list.
+When releasing, bump `version` in `package.json` and `VERSION` in `sw.js` together, then run `npm run stamp`. That writes a hash of every app file into `sw.js`. The service worker refuses to install an update if any file it downloads doesn't match, which stops a CDN that briefly serves some files from the previous release from leaving phones with a mix of old and new files; the browser simply tries again later. `npm run lint` fails if the versions differ or the hashes are out of date.
 
 ## Development
 Requires Node 22.
