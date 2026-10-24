@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "schema": 2,
+  "app": "drink-pass-journal",
+  "exportedAt": "2026-01-15T20:00:00.000Z",
+  "count": 6,
+  "log": [
+    { "id": "sample-1", "type": "drink", "t": 1768464000000, "size": { "label": "medium", "ml": 250 }, "kind": "water" },
+    { "id": "sample-2", "type": "pass", "t": 1768467600000, "size": { "label": "small", "ml": 100 }, "urgency": "mild" },
+    { "id": "sample-3", "type": "drink", "t": 1768478400000, "size": { "label": "large", "ml": 400 }, "kind": "teacoffee" },
+    { "id": "sample-4", "type": "pass", "t": 1768482000000, "size": { "label": "large", "ml": 400 }, "urgency": "strong" },
+    { "id": "sample-5", "type": "solid", "t": 1768483000000, "bristol": 4 },
+    { "id": "sample-6", "type": "pass", "t": 1768489200000, "note": "after coffee" }
+  ],
+  "settings": { "unit": "ml", "nightStart": "22:00", "nightEnd": "06:00", "askSize": true, "showUrgency": true, "showKind": true, "range": 1, "dotScale": "same", "trackSolid": true, "showBristol": true, "compare": false }
+}
