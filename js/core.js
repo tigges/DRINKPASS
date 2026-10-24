@@ -30,15 +30,23 @@ export function fmtTime(ms, clock) {
   return clock === '12' ? ((h + 11) % 12 + 1) + ':' + m + ' ' + (h < 12 ? 'am' : 'pm') : pad(h) + ':' + m;
 }
 export function fmtHour(h, clock) { h %= 24; return clock === '12' ? ((h + 11) % 12 + 1) + ' ' + (h < 12 ? 'am' : 'pm') : pad(h) + ':00'; }
-export function fmtDur(ms) {
-  var m = Math.round(ms / 60000);
-  if (m < 1) return 'under a minute';
-  if (m < 60) return m + ' min';
+/** Fills {name} placeholders; the default translator for the formatters below. */
+export function fill(s, vars) { return vars ? s.replace(/\{(\w+)\}/g, function (m, k) { return vars[k] !== undefined ? vars[k] : m; }) : s; }
+export function fmtDur(ms, tr) {
+  var t = tr || fill, m = Math.round(ms / 60000);
+  if (m < 1) return t('under a minute');
+  if (m < 60) return t('{m} min', { m: m });
   var h = Math.floor(m / 60), r = m % 60;
-  return r ? h + ' h ' + r + ' min' : h + ' h';
+  return r ? t('{h} h {m} min', { h: h, m: r }) : t('{h} h', { h: h });
 }
-export function agoText(ms, now) { var d = (now === undefined ? Date.now() : now) - ms; return d < 60000 ? 'just now' : fmtDur(d) + ' ago'; }
-export function fmtVol(ml, unit) { return unit === 'oz' ? (Math.round(ml / OZ * 10) / 10) + ' fl oz' : Math.round(ml).toLocaleString() + ' ml'; }
+export function agoText(ms, now, tr) {
+  var t = tr || fill, d = (now === undefined ? Date.now() : now) - ms;
+  return d < 60000 ? t('just now') : t('{d} ago', { d: fmtDur(d, tr) });
+}
+export function fmtVol(ml, unit, locale) {
+  var n = unit === 'oz' ? Math.round(ml / OZ * 10) / 10 : Math.round(ml);
+  return n.toLocaleString(locale) + (unit === 'oz' ? ' fl oz' : ' ml');
+}
 export function toLocalInput(ms) { var d = new Date(ms); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
 export function isoDate(ms) { var d = new Date(ms); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 export function sortEntries(log) { return log.slice().sort(function (a, b) { return a.t - b.t; }); }
@@ -177,7 +185,7 @@ export function drinkReminder(sorted, now, hours, isNight, asleep) {
 }
 
 export var SCHEMA = 2;
-export var DEFAULT_SETTINGS = { unit: 'ml', nightStart: '22:00', nightEnd: '06:00', askSize: true, showUrgency: true, showKind: true, range: 1, dotScale: 'same', trackSolid: false, showBristol: false, compare: false, remindAfter: 0, remindNotify: false, clock: '24' };
+export var DEFAULT_SETTINGS = { unit: 'ml', nightStart: '22:00', nightEnd: '06:00', askSize: true, showUrgency: true, showKind: true, range: 1, dotScale: 'same', trackSolid: false, showBristol: false, compare: false, remindAfter: 0, remindNotify: false, clock: '24', lang: '' };
 var SIZE_LABELS = ['small', 'medium', 'large', 'exact'];
 var TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 var EARLIEST = Date.UTC(2000, 0, 1);
@@ -217,6 +225,7 @@ export function sanitizeSettings(q, base) {
   if ([0, 2, 3, 4].indexOf(+q.remindAfter) > -1) out.remindAfter = +q.remindAfter;
   if (typeof q.remindNotify === 'boolean') out.remindNotify = q.remindNotify;
   if (q.clock === '24' || q.clock === '12') out.clock = q.clock;
+  if (typeof q.lang === 'string' && /^([a-z]{2})?$/.test(q.lang)) out.lang = q.lang;
   return out;
 }
 /**
