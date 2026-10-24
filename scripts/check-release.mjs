@@ -16,7 +16,7 @@ const shell = [...shellSrc.matchAll(/'\.\/([^']*)'/g)].map((m) => m[1]).filter(B
 for (const f of shell) if (!existsSync(join(root, f))) problems.push(`sw.js precaches missing file ${f}`);
 
 const appFiles = ['index.html', 'manifest.webmanifest'];
-for (const dir of ['css', 'js', 'fonts', 'icons']) {
+for (const dir of ['css', 'js', 'js/i18n', 'fonts', 'icons']) {
   for (const f of readdirSync(join(root, dir))) if (/\.(css|js|woff2|png)$/.test(f)) appFiles.push(`${dir}/${f}`);
 }
 for (const f of appFiles) if (!shell.includes(f)) problems.push(`sw.js does not precache ${f}`);
