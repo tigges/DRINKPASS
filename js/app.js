@@ -8,11 +8,10 @@ import {
 var KEY = 'drink-pass-log-v1', SKEY = 'drink-pass-settings-v1', BKEY = 'drink-pass-backup-v1', TKEY = 'drink-pass-trash-v1', MKEY = 'drink-pass-schema';
 var NS = 'http://www.w3.org/2000/svg';
 var log = [], settings = sanitizeSettings(null), bk = { last: 0, snooze: 0, done: 0 }, trash = [], lastTap = {}, barRestore = null, barStash = null;
-var HOSTED = !(window.claude && window.claude.use);
 function isStandalone() { try { return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; } catch (e) { return false; } }
 var idb = null, recoveryPending = null, snapCache = [], mirrorTimer = null, lastSnapAt = 0, persistTried = false, pendingRestore = null;
 var loadProblem = false, storageOk = true, whenMode = 'now', dayOffset = 0, reportDays = 1, rangeDays = 1;
-var sheetId = null, barId = null, barTimer = null, sleep = { periods: [], markers: [], last: null }, dlCap = null;
+var sheetId = null, barId = null, barTimer = null, sleep = { periods: [], markers: [], last: null };
 var $ = function (id) { return document.getElementById(id); };
 var each = function (sel, fn) { Array.prototype.forEach.call(document.querySelectorAll(sel), fn); };
 
@@ -763,8 +762,7 @@ function copyText(text, msgEl, okMsg, onOk) {
   } catch (e) { fallback(); }
 }
 function saveFile(name, data, msgEl, onOk) {
-  if (!dlCap) return;
-  dlCap.save({ filename: name, data: data }).then(function () { msgEl.textContent = 'Saved'; if (onOk) onOk(); setTimeout(function () { msgEl.textContent = ''; }, 2500); },
+  downloadFile({ filename: name, data: data }).then(function () { msgEl.textContent = 'Saved'; if (onOk) onOk(); setTimeout(function () { msgEl.textContent = ''; }, 2500); },
     function (e) { msgEl.textContent = (e && e.code === 'declined') ? 'Cancelled' : 'Couldn’t save. Use Copy instead.'; setTimeout(function () { msgEl.textContent = ''; }, 3000); });
 }
 function stamp() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
@@ -954,7 +952,7 @@ function backupMsgFlash(t) { var m = $('backupMsg'); m.textContent = t; setTimeo
 
 function storeStatus() {
   var parts = ['Entries: ' + log.length + '.'];
-  if (HOSTED) parts.push('Installed as an app: ' + (isStandalone() ? 'yes.' : 'no.'));
+  parts.push('Installed as an app: ' + (isStandalone() ? 'yes.' : 'no.'));
   parts.push(idb ? 'Automatic copies: ' + snapCache.length + (snapCache.length ? ' (latest ' + agoText(snapCache[0].at) + ').' : '.') : 'Automatic copies aren’t available in this browser.');
   var el0 = $('storeStatus'), btn = $('persistBtn');
   var sm = navigator.storage;
@@ -1046,7 +1044,7 @@ try {
 } catch (e) {}
 setInterval(function () { refreshSleep(); renderStats(); if (!$('insightsSheet').hidden && rangeDays === 1) renderInsights(); updateNudge(); }, 30000);
 
-function hostedSave(opts) {
+function downloadFile(opts) {
   var name = opts.filename, type = /\.json$/i.test(name) ? 'application/json' : /\.csv$/i.test(name) ? 'text/csv' : 'text/plain';
   var blob = new Blob([opts.data], { type: type });
   function anchor() {
@@ -1062,15 +1060,6 @@ function hostedSave(opts) {
   } catch (e) {}
   return anchor();
 }
-if (HOSTED) { dlCap = { save: hostedSave }; $('dlCsv').hidden = false; $('dlBackup').hidden = false; }
-try {
-  if (window.claude && window.claude.use) {
-    window.claude.use('downloads').then(function (d) {
-      dlCap = d; $('dlCsv').hidden = !d; $('dlBackup').hidden = !d;
-    }, function () {});
-  }
-} catch (e) {}
-
 if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
   window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
 }

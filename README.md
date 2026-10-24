@@ -28,7 +28,7 @@ Good to know
 Other hosts (Cloudflare Pages or Netlify) also work by dragging the folder in.
 
 ## 3. Move your data (do this once)
-1. In the current claude.ai version: Settings (gear inside Insights), tap **Download backup**, and save the file to Files or iCloud Drive.
+1. In the copy you use now: Settings (sliders inside Insights), tap **Download backup**, and save the file to Files or iCloud Drive.
 2. On your phone, open the new address.
 3. iPhone: Safari, Share, **Add to Home Screen**. Android Chrome: menu, **Install app**.
 4. Open the app from the new home-screen icon. On iPhone the browser tab and the installed app keep separate storage, so restore inside the installed app, not in the browser tab.

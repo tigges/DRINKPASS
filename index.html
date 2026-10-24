@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Drink &amp; Pass Journal</title>
 <link rel="manifest" href="manifest.webmanifest">
@@ -13,9 +14,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Drink & Pass">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<link rel="preload" href="fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -179,7 +178,7 @@
     <div id="reportChart"></div>
     <div class="scroll" id="reportTable"></div>
     <div class="setrow noprint">
-      <button class="btn" id="dlCsv" type="button" hidden>Download CSV</button>
+      <button class="btn" id="dlCsv" type="button">Download CSV</button>
       <button class="btn" id="copyCsv" type="button">Copy as CSV</button>
       <button class="btn" id="printBtn" type="button">Print</button>
       <span id="reportMsg" class="hint"></span>
@@ -227,7 +226,7 @@
 
     <div class="sech">Backup</div>
     <p class="hint lead" id="lastBackup"></p>
-    <div class="setrow"><button class="btn" id="dlBackup" type="button" hidden>Download backup</button><button class="btn" id="copyBackup" type="button">Copy backup</button><span id="backupMsg" class="hint"></span></div>
+    <div class="setrow"><button class="btn" id="dlBackup" type="button">Download backup</button><button class="btn" id="copyBackup" type="button">Copy backup</button><span id="backupMsg" class="hint"></span></div>
     <div class="setrow"><label class="btn filebtn" for="restoreFile">Restore from file</label><input class="vh" id="restoreFile" type="file" accept=".json,application/json,text/plain"></div>
     <label class="strong" for="restoreBox">Or paste a backup</label>
     <textarea id="restoreBox" placeholder="Paste a backup here"></textarea>
