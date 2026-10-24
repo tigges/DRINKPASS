@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   H, DAY, fmtDur, fmtVol, mins, median, sleepModel, isNightAt, isAsleepAt, clockNight, computeGaps,
-  periodStats, csvCell, toCsv, sortEntries, dayRange, startOfDay, sanitizeEntry, sanitizeSettings, migrateLog, DEFAULT_SETTINGS
+  periodStats, csvCell, toCsv, sortEntries, between, dayRange, startOfDay, sanitizeEntry, sanitizeSettings, migrateLog, DEFAULT_SETTINGS
 } from '../../js/core.js';
 
 const at = (s) => new Date(s).getTime();
@@ -162,4 +162,31 @@ test('dayRange spans a calendar day across the October clock change', () => {
   const [a, b] = dayRange(0, now);
   assert.equal(a, startOfDay(now));
   assert.equal(b - a, 25 * H);
+});
+
+test('isNightAt matches a straightforward scan on random sleep logs', () => {
+  const naive = (ms, m, s, e) => {
+    for (const p of m.periods) if (ms >= p[0] && ms < p[1]) return true;
+    for (const t of m.markers) if (Math.abs(ms - t) < 12 * H) return false;
+    return clockNight(ms, s, e);
+  };
+  let seed = 7;
+  const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const start = at('2026-01-01T00:00');
+  for (let run = 0; run < 20; run++) {
+    const log = [];
+    for (let i = 0; i < 40; i++) log.push({ id: 'm' + i, type: rand() < 0.5 ? 'bed' : 'wake', t: start + Math.floor(rand() * 30 * DAY) });
+    const m = sleepModel(sortEntries(log), '22:00');
+    for (let j = 0; j < 300; j++) {
+      const ms = start - DAY + Math.floor(rand() * 32 * DAY);
+      assert.equal(isNightAt(ms, m, '22:00', '06:00'), naive(ms, m, '22:00', '06:00'));
+    }
+  }
+});
+
+test('between returns the half-open time slice', () => {
+  const s = [1, 2, 2, 3, 5].map((t, i) => ({ id: String(i), t }));
+  assert.deepEqual(between(s, 2, 5).map((x) => x.t), [2, 2, 3]);
+  assert.deepEqual(between(s, 0, 1), []);
+  assert.deepEqual(between(s, 4, Infinity).map((x) => x.t), [5]);
 });

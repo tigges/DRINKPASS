@@ -1,41 +1,72 @@
 # Drink & Pass Journal: installable web app
 
-This folder is the whole app. It is plain files, so any static host can serve it. Your entries stay on the device (nothing is sent anywhere).
+A bladder and drink diary for your phone. Tap **Drink** or **Pass** when it happens; times, gaps, night passes and daily totals are worked out for you. It works offline and installs to the home screen. Your entries stay on the device: the app makes no network requests apart from loading its own files.
+
+## What it does
+- One-tap logging with optional size, drink type, urgency, stool type (Bristol scale) and notes
+- Sleep markers (moon and sun) so night passes are counted from your actual night
+- Insights for 24 hours to 30 days, with an optional comparison to the previous period
+- A clinician summary with a frequency and volume table, a dot chart and a detailed diary, ready to print or copy as CSV
+- Export everything as CSV or as a FHIR bundle for health-record systems
+- Backups to a file, optionally encrypted with a password, plus automatic copies kept in the browser
+- Optional drink reminders during the day
+- Home-screen shortcuts for "Log a drink" and "Log a pass"
 
 ## What is inside
-- `index.html`: the app
+- `index.html`, `css/`, `js/`, `fonts/`: the app (no build step; `js/` is plain ES modules)
 - `manifest.webmanifest`, `icons/`: lets phones install it with its own icon
-- `sw.js`: keeps it working offline
-- `_headers`: basic security and caching headers (used by Cloudflare Pages and Netlify)
+- `sw.js`: keeps it working offline and offers updates
+- `_headers`: security and caching headers (used by Cloudflare Pages and Netlify; GitHub Pages ignores it, and the same Content Security Policy is also set in `index.html`)
+- `tests/`, `scripts/`, `package.json` and the config files are development tooling only
 
 ## 1. Pick the final address first
 Your entries are stored per address. If the address changes later, you will need to back up and restore again, so choose the address you want to keep before you start using it for real. A free address such as `yourname.pages.dev` works; a custom domain can be added in the host's settings.
 
 ## 2. Put it online with GitHub Pages
-Do this on a computer, it takes about five minutes.
-1. Sign in at github.com and create a **new repository**. Name it carefully, because the name becomes part of the address and renaming it later changes the address. It must be **public** on a free GitHub account.
-2. Unzip this package. Open the folder, select **everything inside it** (including the hidden `.nojekyll` file and the `icons` folder) and drag it onto the repository page, or use Add file, Upload files. Commit the changes. `index.html` must sit at the top level of the repository.
-3. Open the repository's **Settings**, then **Pages**. Under Build and deployment choose **Deploy from a branch**, pick the `main` branch and the `/ (root)` folder, then Save. (Labels can differ slightly.)
-4. After a minute or two the page shows your address: `https://YOUR-USERNAME.github.io/REPOSITORY-NAME/`. Open it on your phone. GitHub Pages serves it over https automatically.
-5. Optional: add a custom domain on the same Pages screen and tick Enforce HTTPS.
+1. Open the repository's **Settings**, then **Pages**. Under Build and deployment choose **Deploy from a branch**, pick the `main` branch and the `/ (root)` folder, then Save.
+2. After a minute or two the page shows your address: `https://YOUR-USERNAME.github.io/REPOSITORY-NAME/`. Open it on your phone. GitHub Pages serves it over https automatically.
+3. Optional: add a custom domain on the same Pages screen and tick Enforce HTTPS.
 
 Good to know
-- A GitHub Free account needs a public repository for Pages. The repository only contains the app, never your entries.
-- Everything under `YOUR-USERNAME.github.io` shares one browser storage area. If you host other projects there, they could read this journal's saved data. A custom domain just for this app, or a separate GitHub account, keeps it isolated.
-- GitHub's terms don't allow Pages to run a commercial service. That's fine for personal use. If this becomes a commercial product, move it to another host, and use a custom domain from the start so the address, and everyone's saved data, stays the same.
-- The `_headers` file is ignored by GitHub Pages. It only matters on Cloudflare Pages or Netlify.
+- A GitHub Free account needs a public repository for Pages. The repository only contains the app, never your entries. Don't commit backup files to it.
+- Everything under `YOUR-USERNAME.github.io` shares one browser storage area. If you host other projects there, they could read this journal's saved data. A custom domain just for this app keeps it isolated.
+- GitHub's terms don't allow Pages to run a commercial service. That's fine for personal use.
 
-Other hosts (Cloudflare Pages or Netlify) also work by dragging the folder in.
+Cloudflare Pages and Netlify also work: connect the repository or drag the folder in. They also apply `_headers`.
 
-## 3. Move your data (do this once)
-1. In the current claude.ai version: Settings (gear inside Insights), tap **Download backup**, and save the file to Files or iCloud Drive.
+## 3. Move your data
+1. In the copy you use now: Settings (sliders inside Insights), tap **Download backup**, and save the file to Files or iCloud Drive. Add a password first if you want the file encrypted.
 2. On your phone, open the new address.
 3. iPhone: Safari, Share, **Add to Home Screen**. Android Chrome: menu, **Install app**.
 4. Open the app from the new home-screen icon. On iPhone the browser tab and the installed app keep separate storage, so restore inside the installed app, not in the browser tab.
-5. Settings, **Restore from file**, choose your backup, check the preview, then **Add entries**. Leave "Also restore the settings" ticked.
+5. Settings, **Restore from file**, choose your backup (enter its password if it has one), check the preview, then **Add entries**. Entries already in the app are skipped, so restoring twice is safe.
 
 ## 4. Keep it safe
-Tap **Download backup** now and then and save it to iCloud Drive or Google Drive. On iPhone, the share sheet offers "Save to Files".
+Tap **Download backup** now and then and save it to iCloud Drive or Google Drive. On iPhone, the share sheet offers "Save to Files". If you set a password, keep it somewhere safe: an encrypted backup can't be opened without it.
 
 ## Updating the app
-Replace the files on the host with a newer set. The app picks up the update the next time it is opened with a connection.
+Push the new files to `main`. Open copies download the new version in the background and show **A new version of the app is ready**; tapping **Update** switches over. Nothing changes mid-session without that tap.
+
+When releasing, bump `version` in `package.json` and `VERSION` in `sw.js` together; `npm run lint` fails if they differ or if a file is missing from the offline cache list.
+
+## Development
+Requires Node 22.
+
+```sh
+npm ci
+npm run serve        # http://localhost:8080/
+npm run lint         # ESLint, HTML validation, offline-cache check
+npm run test:unit    # node:test, logic in js/core.js, js/fhir.js, js/crypto.js
+npx playwright install chromium
+npm run test:e2e     # Playwright, including axe accessibility checks
+npm run lighthouse   # Lighthouse CI against the local server
+```
+
+The app must be served over http(s) (ES modules and the service worker don't run from `file://`). CI runs lint, unit tests, end-to-end tests and Lighthouse on every pull request.
+
+Code layout: `js/core.js` holds the pure logic (formatting, sleep and night detection, gaps, stats, validation and migration, CSV, frequency-volume, reminders) and has no DOM access, so it is unit-tested in Node. `js/app.js` is the interface and storage. `js/fhir.js` and `js/crypto.js` hold the FHIR export and backup encryption.
+
+## Licence
+MIT, see `LICENSE`. The bundled Bricolage Grotesque font is under the SIL Open Font License (`fonts/OFL.txt`).
+
+This journal records what you enter. It isn't medical advice.
