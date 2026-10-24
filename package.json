@@ -13,6 +13,7 @@
     "lighthouse": "lhci autorun"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@lhci/cli": "^0.14.0",
     "@playwright/test": "^1.48.0",
     "eslint": "^9.13.0",

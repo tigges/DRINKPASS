@@ -252,10 +252,10 @@ function openSheet(entry, keepTime) {
     $('noteRow').hidden = !entry.note; $('noteToggleText').textContent = entry.note ? 'Edit note' : 'Add a note';
   }
   $('sheetRemove').hidden = false;
-  $('sheet').hidden = false;
+  if ($('sheet').hidden) openDialog('sheet');
 }
-function hideSheet() { flushNote(); $('sheet').hidden = true; }
-function closeSheet() { sheetId = null; hideSheet(); render(); }
+function hideSheet() { flushNote(); closeDialog('sheet'); }
+function closeSheet() { sheetId = null; render(); hideSheet(); }
 function setSize(label, ml) {
   var e = find(sheetId); if (!e) return;
   e.size = { label: label, ml: ml }; save(); render(); openSheet(e);
@@ -422,7 +422,7 @@ function buildRow(x, info, withDay) {
   }
   if (sm) wh.appendChild(sm);
   b.appendChild(mk); b.appendChild(tm); b.appendChild(wh);
-  b.setAttribute('aria-label', NAMES[x.type] + ' at ' + fmtTime(x.t) + (!sl && x.type !== 'solid' && !x.size ? ', no size' : '') + '. Open details');
+  b.setAttribute('data-id', x.id);
   b.addEventListener('click', function () { openSheet(x); });
   return b;
 }
@@ -486,6 +486,7 @@ function renderInsights() {
     var noSize = !x.size && x.type !== 'solid';
     if (noSize) anyNoSize = true;
     var d = document.createElement('button'); d.type = 'button'; d.className = 'd ' + cls + (noSize ? ' ns' : '');
+    d.setAttribute('data-id', x.id);
     d.setAttribute('aria-label', NAMES[x.type] + ' at ' + fmtTime(x.t) + (x.size ? ', ' + fmtVol(x.size.ml) : (x.type === 'solid' ? '' : ', no size')) + '. Open details');
     d.addEventListener('click', function () { openSheet(x); });
     d.style.width = d.style.height = size + 'px'; d.style.marginLeft = (-size / 2) + 'px'; d.style.left = left + '%'; d.style.top = (cy - size / 2) + 'px';
@@ -622,7 +623,7 @@ function renderInsights() {
     if (bc.reduce(function (a, b) { return a + b; }, 0) - bc[0] > 0) {
       var BR = ['#e8d9cc', '#d9bfa8', '#c5a283', '#a98160', '#8a6a4f', '#6e533d', '#4f3b2b'], parts = [], bl = [];
       for (var z = 1; z <= 7; z++) if (bc[z]) { parts.push({ n: bc[z], color: BR[z - 1], ink: z <= 4 ? '#2a1d12' : '#ffffff', text: String(z) }); bl.push('Type ' + z + ': ' + bc[z]); }
-      if (bc[0]) { parts.push({ n: bc[0], color: '#e3edf2', ink: '#5f7a8a', text: '–' }); bl.push('Not recorded: ' + bc[0]); }
+      if (bc[0]) { parts.push({ n: bc[0], color: '#e3edf2', ink: '#526c7b', text: '–' }); bl.push('Not recorded: ' + bc[0]); }
       sdt.appendChild(segBar(parts)); sdt.appendChild(el('div', 'sub', 'Bristol scale. ' + bl.join(' · ')));
     }
     if (cmp && cmp.prev.solids) sdt.appendChild(el('div', 'sub', signed(cmp.cur.solids - cmp.prev.solids, String) + ' ' + cmp.label));
@@ -635,7 +636,7 @@ function renderInsights() {
   else st.appendChild(segBar([
     { n: sc.small, color: '#ffeb99', ink: '#3d3000', text: 'Small ' + sc.small }, { n: sc.medium, color: '#f6c800', ink: '#3d3000', text: 'Medium ' + sc.medium },
     { n: sc.large, color: '#c79f00', ink: '#2a2100', text: 'Large ' + sc.large }, { n: sc.exact, color: '#8f6f00', ink: '#ffffff', text: 'Exact ' + sc.exact },
-    { n: sc.none, color: '#e3edf2', ink: '#5f7a8a', text: 'No size ' + sc.none }]));
+    { n: sc.none, color: '#e3edf2', ink: '#526c7b', text: 'No size ' + sc.none }]));
   tiles.appendChild(st);
 
   if (settings.showUrgency) {
@@ -647,7 +648,7 @@ function renderInsights() {
       ut.appendChild(segBar([
         { n: uc.none, color: '#fff6cc', ink: '#3d3000', text: String(uc.none) }, { n: uc.mild, color: '#ffeb99', ink: '#3d3000', text: String(uc.mild) },
         { n: uc.strong, color: '#c79f00', ink: '#2a2100', text: String(uc.strong) }, { n: uc.cantwait, color: '#8f6f00', ink: '#ffffff', text: String(uc.cantwait) },
-        { n: uc.na, color: '#e3edf2', ink: '#5f7a8a', text: String(uc.na) }]));
+        { n: uc.na, color: '#e3edf2', ink: '#526c7b', text: String(uc.na) }]));
       var ul = []; if (uc.none) ul.push('None ' + uc.none); if (uc.mild) ul.push('Mild ' + uc.mild); if (uc.strong) ul.push('Strong ' + uc.strong); if (uc.cantwait) ul.push('Couldn’t wait ' + uc.cantwait); if (uc.na) ul.push('Not recorded ' + uc.na);
       ut.appendChild(el('div', 'sub', ul.join(' · ')));
     }
@@ -657,7 +658,7 @@ function renderInsights() {
   if (settings.showKind) {
     var kt = tile('Drink types', true), kn = {}, kv = {}, anyMl = false;
     rangeItems.forEach(function (x) { if (x.type !== 'drink') return; var key = x.kind || 'na'; kn[key] = (kn[key] || 0) + 1; if (x.size) { kv[key] = (kv[key] || 0) + x.size.ml; anyMl = true; } });
-    var KC = { water: ['#187cc2', '#ffffff'], teacoffee: ['#7bb8e0', '#0e2a3b'], alcohol: ['#0e2a3b', '#ffffff'], other: ['#a9bcc7', '#0e2a3b'], na: ['#e3edf2', '#5f7a8a'] };
+    var KC = { water: ['#1572b5', '#ffffff'], teacoffee: ['#7bb8e0', '#0e2a3b'], alcohol: ['#0e2a3b', '#ffffff'], other: ['#a9bcc7', '#0e2a3b'], na: ['#e3edf2', '#526c7b'] };
     var keys = ['water', 'teacoffee', 'alcohol', 'other', 'na'].filter(function (q) { return kn[q]; });
     if (!keys.length) kt.appendChild(el('div', 'empty2', 'No drinks in this range.'));
     else {
@@ -772,8 +773,33 @@ function render() {
   if (!$('insightsSheet').hidden) renderInsights();
   if (!$('reportSheet').hidden) renderReport();
 }
-function showOverlay(id) { $(id).hidden = false; var c = $(id).querySelector('[data-close]'); if (c) c.focus(); }
-function hideOverlay(id) { $(id).hidden = true; }
+// Open dialogs, top last. Everything outside the top one is made inert, and closing returns focus to what opened it.
+var dialogs = [], LAYERS = ['app', 'logSheet', 'insightsSheet', 'reportSheet', 'settingsSheet', 'sheet'];
+function syncInert() {
+  var top = dialogs.length ? dialogs[dialogs.length - 1].id : null;
+  LAYERS.forEach(function (id) { $(id).inert = top !== null && id !== top; });
+  $('scrim').hidden = top !== 'sheet';
+}
+function openDialog(id) {
+  var d = $(id), from = document.activeElement;
+  dialogs = dialogs.filter(function (q) { return q.id !== id; });
+  dialogs.push({ id: id, from: from, fromId: from && from.getAttribute && from.getAttribute('data-id') });
+  d.hidden = false; syncInert();
+  var first = d.querySelector('[data-close]') || d.querySelector('button, input, [tabindex]');
+  if (first) first.focus();
+}
+function closeDialog(id) {
+  var d = $(id), rec = null;
+  dialogs = dialogs.filter(function (q) { if (q.id === id) rec = q; return q.id !== id; });
+  d.hidden = true; syncInert();
+  if (!rec) return;
+  var back = rec.from;
+  // Lists re-render while a dialog is open, so find the replacement for a row or dot that opened it.
+  if ((!back || !back.isConnected) && rec.fromId) back = document.querySelector('[data-id="' + CSS.escape(rec.fromId) + '"]');
+  if (back && back.isConnected && back.offsetParent !== null) back.focus();
+}
+function showOverlay(id) { openDialog(id); }
+function hideOverlay(id) { closeDialog(id); }
 
 $('drinkBtn').addEventListener('click', function (e) { addEntry('drink', e); });
 $('passBtn').addEventListener('click', function (e) { addEntry('pass', e); });
@@ -784,6 +810,7 @@ $('pickTime').addEventListener('change', function () { $('whenText').textContent
 $('prev').addEventListener('click', function () { dayOffset -= 1; renderList(); });
 $('next').addEventListener('click', function () { if (dayOffset < 0) { dayOffset += 1; renderList(); } });
 $('sheetSkip').addEventListener('click', closeSheet);
+$('scrim').addEventListener('click', closeSheet);
 $('barUndo').addEventListener('click', function () { if (barRestore) { var re = barRestore; hideBar(); restoreEntry(re.entry, re.partner); } else if (barId) remove(barId); });
 $('barMore').addEventListener('click', function () { var e = find(barId); if (e) openSheet(e); });
 var swipeY = null;
@@ -834,12 +861,9 @@ $('openReport').addEventListener('click', function () { renderReport(); showOver
 $('openSettings').addEventListener('click', function () { syncSettings(); showOverlay('settingsSheet'); });
 each('[data-close]', function (b) { b.addEventListener('click', function () { hideOverlay(b.getAttribute('data-close')); }); });
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape') {
-    if (!$('sheet').hidden) closeSheet();
-    else if (!$('reportSheet').hidden) hideOverlay('reportSheet');
-    else if (!$('settingsSheet').hidden) hideOverlay('settingsSheet');
-    else if (!$('logSheet').hidden) hideOverlay('logSheet');
-    else hideOverlay('insightsSheet');
+  if (e.key === 'Escape' && dialogs.length) {
+    var top = dialogs[dialogs.length - 1].id;
+    if (top === 'sheet') closeSheet(); else hideOverlay(top);
   }
 });
 each('[data-range]', function (b) { b.addEventListener('click', function () { rangeDays = +b.getAttribute('data-range'); settings.range = rangeDays; save(); reportDays = rangeDays > 7 ? 7 : rangeDays; renderInsights(); }); });
