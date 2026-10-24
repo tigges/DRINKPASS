@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "serve": "node scripts/serve.mjs",
-    "lint": "eslint . && html-validate index.html",
+    "lint": "eslint . && html-validate index.html && node scripts/check-release.mjs",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "node --test \"tests/unit/*.test.js\"",
     "test:e2e": "playwright test",

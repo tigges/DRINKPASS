@@ -1060,6 +1060,35 @@ function downloadFile(opts) {
   } catch (e) {}
   return anchor();
 }
+// Home-screen shortcuts open ./?log=drink or ./?log=pass. Drop the parameter so a reload doesn't log again.
+function handleShortcut() {
+  var type = new URLSearchParams(location.search).get('log');
+  if (!type) return;
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  if (type === 'drink' || type === 'pass') addEntry(type);
+}
+handleShortcut();
+
+function watchUpdates(reg) {
+  var offer = function (w) { if (w && navigator.serviceWorker.controller) { waitingWorker = w; $('updateBar').hidden = false; } };
+  offer(reg.waiting);
+  reg.addEventListener('updatefound', function () {
+    var w = reg.installing; if (!w) return;
+    w.addEventListener('statechange', function () { if (w.state === 'installed') offer(w); });
+  });
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') reg.update().catch(function () {}); });
+}
+var waitingWorker = null, reloading = false;
+$('updateNow').addEventListener('click', function () {
+  if (!waitingWorker) return;
+  flushNote(); mirrorNow();
+  $('updateNow').disabled = true;
+  waitingWorker.postMessage({ type: 'skip-waiting' });
+});
 if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
-  window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (!waitingWorker || reloading) return;
+    reloading = true; location.reload();
+  });
+  window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').then(watchUpdates).catch(function () {}); });
 }
