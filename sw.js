@@ -1,6 +1,6 @@
 /* Drink & Pass Journal service worker: keeps the app working offline. Entries are never touched here. */
 // Bump VERSION with every release (scripts/check-release.mjs enforces it matches package.json).
-var VERSION = '1.1.0';
+var VERSION = '1.2.0';
 var CACHE = 'dp-shell-' + VERSION;
 var SHELL = [
   './', './index.html', './css/app.css', './js/app.js', './js/core.js', './js/crypto.js', './js/fhir.js',

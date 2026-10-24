@@ -10,6 +10,7 @@ A bladder and drink diary for your phone. Tap **Drink** or **Pass** when it happ
 - Export everything as CSV or as a FHIR bundle for health-record systems
 - Backups to a file, optionally encrypted with a password, plus automatic copies kept in the browser
 - Optional drink reminders during the day
+- ml or fl oz, and a 24-hour (default) or 12-hour clock
 - Home-screen shortcuts for "Log a drink" and "Log a pass"
 
 ## What is inside

@@ -24,7 +24,12 @@ export function dayRange(offset, now) {
   var e = new Date(b); e.setDate(e.getDate() + 1);
   return [b.getTime(), e.getTime()];
 }
-export function fmtTime(ms) { return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+/** `clock` is '24' (14:05) or '12' (2:05 pm); formatted by hand so the phone's locale can't override the setting. */
+export function fmtTime(ms, clock) {
+  var d = new Date(ms), h = d.getHours(), m = pad(d.getMinutes());
+  return clock === '12' ? ((h + 11) % 12 + 1) + ':' + m + ' ' + (h < 12 ? 'am' : 'pm') : pad(h) + ':' + m;
+}
+export function fmtHour(h, clock) { h %= 24; return clock === '12' ? ((h + 11) % 12 + 1) + ' ' + (h < 12 ? 'am' : 'pm') : pad(h) + ':00'; }
 export function fmtDur(ms) {
   var m = Math.round(ms / 60000);
   if (m < 1) return 'under a minute';
@@ -172,7 +177,7 @@ export function drinkReminder(sorted, now, hours, isNight, asleep) {
 }
 
 export var SCHEMA = 2;
-export var DEFAULT_SETTINGS = { unit: 'ml', nightStart: '22:00', nightEnd: '06:00', askSize: true, showUrgency: true, showKind: true, range: 1, dotScale: 'same', trackSolid: false, showBristol: false, compare: false, remindAfter: 0, remindNotify: false };
+export var DEFAULT_SETTINGS = { unit: 'ml', nightStart: '22:00', nightEnd: '06:00', askSize: true, showUrgency: true, showKind: true, range: 1, dotScale: 'same', trackSolid: false, showBristol: false, compare: false, remindAfter: 0, remindNotify: false, clock: '24' };
 var SIZE_LABELS = ['small', 'medium', 'large', 'exact'];
 var TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 var EARLIEST = Date.UTC(2000, 0, 1);
@@ -211,6 +216,7 @@ export function sanitizeSettings(q, base) {
   if (q.dotScale === 'same' || q.dotScale === 'amount') out.dotScale = q.dotScale;
   if ([0, 2, 3, 4].indexOf(+q.remindAfter) > -1) out.remindAfter = +q.remindAfter;
   if (typeof q.remindNotify === 'boolean') out.remindNotify = q.remindNotify;
+  if (q.clock === '24' || q.clock === '12') out.clock = q.clock;
   return out;
 }
 /**

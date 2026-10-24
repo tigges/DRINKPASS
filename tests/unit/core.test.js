@@ -3,7 +3,7 @@ process.env.TZ = 'Europe/London';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  H, DAY, fmtDur, fmtVol, mins, median, sleepModel, isNightAt, isAsleepAt, clockNight, computeGaps,
+  H, DAY, fmtDur, fmtTime, fmtHour, fmtVol, mins, median, sleepModel, isNightAt, isAsleepAt, clockNight, computeGaps,
   periodStats, csvCell, toCsv, sortEntries, between, dayRange, startOfDay, sanitizeEntry, sanitizeSettings, migrateLog, DEFAULT_SETTINGS
 } from '../../js/core.js';
 
@@ -122,6 +122,25 @@ test('sanitizeEntry keeps known fields and rejects unusable entries', () => {
   );
   assert.deepEqual(sanitizeEntry({ id: 'b', type: 'drink', t: now, size: { ml: 'lots' }, kind: 'water' }, now), { id: 'b', type: 'drink', t: now, kind: 'water' });
   assert.equal(sanitizeEntry({ id: 'c', type: 'pass', t: now, note: 'x'.repeat(500) }, now).note.length, 200);
+});
+
+test('fmtTime and fmtHour use a 24-hour clock unless 12 is chosen', () => {
+  assert.equal(fmtTime(at('2026-01-15T00:05'), undefined), '00:05');
+  assert.equal(fmtTime(at('2026-01-15T14:30'), '24'), '14:30');
+  assert.equal(fmtTime(at('2026-01-15T00:05'), '12'), '12:05 am');
+  assert.equal(fmtTime(at('2026-01-15T09:07'), '12'), '9:07 am');
+  assert.equal(fmtTime(at('2026-01-15T12:00'), '12'), '12:00 pm');
+  assert.equal(fmtTime(at('2026-01-15T23:59'), '12'), '11:59 pm');
+  assert.equal(fmtHour(6, '24'), '06:00');
+  assert.equal(fmtHour(0, '12'), '12 am');
+  assert.equal(fmtHour(18, '12'), '6 pm');
+});
+
+test('the clock setting defaults to 24-hour and accepts only 24 or 12', () => {
+  assert.equal(DEFAULT_SETTINGS.clock, '24');
+  assert.equal(sanitizeSettings({}).clock, '24');
+  assert.equal(sanitizeSettings({ clock: '12' }).clock, '12');
+  assert.equal(sanitizeSettings({ clock: 12 }).clock, '24');
 });
 
 test('sanitizeSettings ignores malformed values', () => {
