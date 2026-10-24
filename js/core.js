@@ -139,10 +139,13 @@ export function fvSummary(days, isNight) {
     r.meanMl = r.sized ? r.outMl / r.sized : 0;
     return r;
   });
-  var n = rows.length || 1, tot = function (k) { return rows.reduce(function (a, r) { return a + r[k]; }, 0); };
+  // Days with nothing logged are usually days the diary wasn't kept, so they don't dilute the average.
+  var kept = rows.filter(function (r) { return r.drinks || r.passes; }), n = kept.length || 1;
+  var tot = function (k) { return kept.reduce(function (a, r) { return a + r[k]; }, 0); };
   var sized = tot('sized');
   return {
     rows: rows,
+    daysKept: kept.length,
     average: { intakeMl: tot('intakeMl') / n, passes: tot('passes') / n, nightPasses: tot('nightPasses') / n, outMl: tot('outMl') / n, nightMl: tot('nightMl') / n,
       maxMl: Math.max.apply(null, [0].concat(rows.map(function (r) { return r.maxMl; }))), meanMl: sized ? tot('outMl') / sized : 0 }
   };

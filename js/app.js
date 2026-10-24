@@ -712,17 +712,17 @@ function buildFvTable(box, data) {
   var fv = fvSummary(data, isNight), t = el('table', 'rep fv');
   t.appendChild(el('caption', '', 'Frequency and volume'));
   var head = t.createTHead().insertRow();
-  ['Day', 'Drinks in', 'Passes (night)', 'Passed out', 'Night out', 'Largest', 'Average'].forEach(function (h) { var th = document.createElement('th'); th.scope = 'col'; th.textContent = h; head.appendChild(th); });
-  var tb = t.createTBody(), v = function (ml) { return ml ? fmtVol(ml) : '–'; };
+  ['Day', 'In', 'Passes (night)', 'Out', 'Night out', 'Largest', 'Average'].forEach(function (h) { var th = document.createElement('th'); th.scope = 'col'; th.textContent = h; head.appendChild(th); });
+  var tb = t.createTBody(), v = function (ml) { return ml ? fmtVol(ml).replace(' ', '\u00a0') : '–'; };
   function row(label, r, cls) {
     var tr = tb.insertRow(); if (cls) tr.className = cls;
     var th = document.createElement('th'); th.scope = 'row'; th.textContent = label; tr.appendChild(th);
     [v(r.intakeMl), (Math.round(r.passes * 10) / 10) + ' (' + (Math.round(r.nightPasses * 10) / 10) + ')', v(r.outMl), v(r.nightMl), v(r.maxMl), v(r.meanMl)].forEach(function (c) { tr.insertCell().textContent = c; });
   }
   fv.rows.forEach(function (r) { row(new Date(r.start).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }), r); });
-  if (fv.rows.length > 1) row('Daily average', fv.average, 'tot');
+  if (fv.rows.length > 1 && fv.daysKept) row('Per day', fv.average, 'tot');
   box.appendChild(t);
-  box.appendChild(el('p', 'hint fvnote', 'Night counts passes during your marked sleep or night hours. Volumes only include entries with a size; average is per pass with a size.'));
+  box.appendChild(el('p', 'hint fvnote', 'In is drinks, Out is passes. Night counts passes during your marked sleep or night hours. Volumes only include entries with a size; Average is per pass with a size. Per day averages over the days with entries' + (fv.daysKept < fv.rows.length ? ' (' + fv.daysKept + ' of ' + fv.rows.length + ')' : '') + '.'));
 }
 function renderReport() {
   each('[data-days]', function (c) { c.setAttribute('aria-pressed', +c.getAttribute('data-days') === reportDays ? 'true' : 'false'); });

@@ -29,6 +29,14 @@ test('fvSummary reports per-day frequency and volume with a daily average', () =
   assert.equal(fv.average.outMl, 300);
   assert.equal(fv.average.maxMl, 300);
   assert.equal(fv.average.meanMl, 200);
+  assert.equal(fv.daysKept, 2);
+});
+
+test('fvSummary averages only over days with entries', () => {
+  const d1 = at('2026-10-20T00:00'), d2 = at('2026-10-21T00:00');
+  const fv = fvSummary([{ start: d1, items: [] }, { start: d2, items: [{ type: 'drink', t: d2 + 9 * H, size: { ml: 500 } }] }], night);
+  assert.equal(fv.daysKept, 1);
+  assert.equal(fv.average.intakeMl, 500);
 });
 
 test('drinkReminder fires after the chosen gap, by day only', () => {

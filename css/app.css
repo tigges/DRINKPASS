@@ -255,7 +255,9 @@ svg.ic.sm { width: 16px; height: 16px; }
 .strong { font-weight: 600; }
 .setrow.last { margin-bottom: 0; }
 #backupPass, #unlockPass { min-width: 12em; height: 44px; }
-table.rep.fv { margin-top: 14px; }
+table.rep.fv { margin-top: 14px; font-size: .8rem; }
+table.rep.fv th, table.rep.fv td { padding: 6px 4px; }
+table.rep.fv tbody th { font-weight: 600; }
 table.rep.fv caption { text-align: left; font-weight: 600; padding: 0 8px 6px; }
 table.rep.fv td:not(:first-child), table.rep.fv th:not(:first-child) { text-align: right; }
 .fvnote { margin: 6px 8px 0; }

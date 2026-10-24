@@ -75,5 +75,5 @@ test('the clinician summary includes a frequency-volume table', async ({ page })
   await page.locator('[data-days="1"]').click();
   const row = page.locator('#reportFv tbody tr').first();
   await expect(page.locator('#reportFv caption')).toHaveText('Frequency and volume');
-  await expect(row.locator('td')).toHaveText(['650 ml', '3 (0)', '500 ml', '–', '400 ml', '250 ml']);
+  await expect(row.locator('td')).toHaveText(['650\u00a0ml', '3 (0)', '500\u00a0ml', '–', '400\u00a0ml', '250\u00a0ml']);
 });
