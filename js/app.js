@@ -796,6 +796,7 @@ function saveFile(name, data, msgEl, onOk) {
 function stamp() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 
 function render() {
+  document.body.classList.toggle('clock12', settings.clock === '12');
   refreshSleep(); syncSleepBtn(); renderStats(); renderList(); updateNudge(); checkReminder();
   if (!$('insightsSheet').hidden) renderInsights();
   if (!$('reportSheet').hidden) renderReport();
