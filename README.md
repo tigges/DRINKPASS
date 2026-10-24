@@ -6,7 +6,8 @@ A bladder and drink diary for your phone. Tap **Drink** or **Pass** when it happ
 - One-tap logging with optional size, drink type, urgency, stool type (Bristol scale) and notes
 - Sleep markers (moon and sun) so night passes are counted from your actual night
 - Insights for 24 hours to 30 days, with an optional comparison to the previous period
-- A clinician summary with a frequency and volume table, a dot chart and a detailed diary, ready to print or copy as CSV
+- A clinician summary with a frequency and volume table, a dot chart and a detailed diary. **Save as PDF** opens the print window with an A4 layout (name and date-of-birth lines, page numbers); it can also be copied or downloaded as CSV
+- English, German, French, Italian, Dutch, Chinese (Simplified), Spanish and Portuguese. The phone's language is used until a flag is chosen in Settings
 - Export everything as CSV or as a FHIR bundle for health-record systems
 - Backups to a file, optionally encrypted with a password, plus automatic copies kept in the browser
 - Optional drink reminders during the day
@@ -56,8 +57,8 @@ Requires Node 22.
 ```sh
 npm ci
 npm run serve        # http://localhost:8080/
-npm run lint         # ESLint, HTML validation, offline-cache check
-npm run test:unit    # node:test, logic in js/core.js, js/fhir.js, js/crypto.js
+npm run lint         # ESLint, HTML validation, offline-cache and translation checks
+npm run test:unit    # node:test, logic in js/core.js, js/i18n.js, js/fhir.js, js/crypto.js
 npx playwright install chromium
 npm run test:e2e     # Playwright, including axe accessibility checks
 npm run lighthouse   # Lighthouse CI against the local server
@@ -66,6 +67,8 @@ npm run lighthouse   # Lighthouse CI against the local server
 The app must be served over http(s) (ES modules and the service worker don't run from `file://`). CI runs lint, unit tests, end-to-end tests and Lighthouse on every pull request.
 
 Code layout: `js/core.js` holds the pure logic (formatting, sleep and night detection, gaps, stats, validation and migration, CSV, frequency-volume, reminders) and has no DOM access, so it is unit-tested in Node. `js/app.js` is the interface and storage. `js/fhir.js` and `js/crypto.js` hold the FHIR export and backup encryption.
+
+Translations: the English text is the key. Interface code wraps text in `t('…')` (or `tn(n, one, other)` for plurals), and static text in `index.html` is translated at start-up unless it sits inside `translate="no"`. Each language is a file in `js/i18n/` mapping English to the translation, with `{placeholders}` kept as-is. A key such as `passed|Water` adds context when one English word needs two translations. `node scripts/check-i18n.mjs` (part of `npm run lint`) lists missing or unused strings and mismatched placeholders. To add a language, add it to `LANGS` in `js/i18n.js`, add its file to `js/i18n/` and to the cache list in `sw.js`, and add a flag button in Settings. CSV and FHIR exports stay in English.
 
 ## Licence
 MIT, see `LICENSE`. The bundled Bricolage Grotesque font is under the SIL Open Font License (`fonts/OFL.txt`).
