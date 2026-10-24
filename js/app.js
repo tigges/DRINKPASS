@@ -1,22 +1,20 @@
+import {
+  OZ, H, DAY, VALID_TYPES, PRESETS, URG, KINDS, KINDS_SHORT, NAMES, BRISTOL,
+  isSleep, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime, fmtDur, agoText, toLocalInput,
+  sortEntries, sleepModel, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
+  fmtVol as fmtVolIn
+} from './core.js';
+
 var KEY = 'drink-pass-log-v1', SKEY = 'drink-pass-settings-v1', BKEY = 'drink-pass-backup-v1', TKEY = 'drink-pass-trash-v1';
-var OZ = 29.5735, H = 3600000, DAY = 86400000, NS = 'http://www.w3.org/2000/svg';
+var NS = 'http://www.w3.org/2000/svg';
 var log = [], settings = { unit: 'ml', nightStart: '22:00', nightEnd: '06:00', askSize: true, showUrgency: true, showKind: true, range: 1, dotScale: 'same', trackSolid: false, showBristol: false, compare: false }, bk = { last: 0, snooze: 0, done: 0 }, trash = [], lastTap = {}, barRestore = null, barStash = null;
 var HOSTED = !(window.claude && window.claude.use);
 function isStandalone() { try { return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; } catch (e) { return false; } }
 var idb = null, recoveryPending = null, snapCache = [], mirrorTimer = null, lastSnapAt = 0, persistTried = false, pendingRestore = null;
 var storageOk = true, whenMode = 'now', dayOffset = 0, reportDays = 1, rangeDays = 1;
-var sheetId = null, barId = null, barTimer = null, periods = [], markers = [], dlCap = null;
-var PRESETS = {
-  drink: [['Small', 150], ['Medium', 250], ['Large', 400]],
-  pass: [['Small', 100], ['Medium', 250], ['Large', 400]]
-};
-var URG = [['none', 'None'], ['mild', 'Mild'], ['strong', 'Strong'], ['cantwait', 'Couldn’t wait']];
-var KINDS = [['water', 'Water'], ['teacoffee', 'Tea or coffee'], ['alcohol', 'Alcohol'], ['other', 'Other']];
-var NAMES = { drink: 'Drink', pass: 'Pass', solid: 'Solid', bed: 'Going to bed', wake: 'Up for the day' };
-var BRISTOL = [[1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5'], [6, '6'], [7, '7']];
+var sheetId = null, barId = null, barTimer = null, sleep = { periods: [], markers: [], last: null }, dlCap = null;
 var $ = function (id) { return document.getElementById(id); };
 var each = function (sel, fn) { Array.prototype.forEach.call(document.querySelectorAll(sel), fn); };
-function isSleep(x) { return x.type === 'bed' || x.type === 'wake'; }
 
 function testStorage() { try { localStorage.setItem('dp-test', '1'); localStorage.removeItem('dp-test'); storageOk = true; } catch (e) { storageOk = false; } }
 function load() {
@@ -50,69 +48,18 @@ function backupStatus() {
 }
 function markBackup() { bk.last = Date.now(); bk.done = Date.now(); bk.snooze = 0; saveBk(); updateNudge(); backupStatus(); }
 
-function startOfDay(ms) { var d = new Date(ms); d.setHours(0,0,0,0); return d.getTime(); }
-function fmtTime(ms) { return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
-function fmtDur(ms) {
-  var m = Math.round(ms / 60000);
-  if (m < 1) return 'under a minute';
-  if (m < 60) return m + ' min';
-  var h = Math.floor(m / 60), r = m % 60;
-  return r ? h + ' h ' + r + ' min' : h + ' h';
-}
-function agoText(ms) { var d = Date.now() - ms; return d < 60000 ? 'just now' : fmtDur(d) + ' ago'; }
-function fmtVol(ml) { return settings.unit === 'oz' ? (Math.round(ml / OZ * 10) / 10) + ' fl oz' : Math.round(ml).toLocaleString() + ' ml'; }
-function sorted() { return log.slice().sort(function (a, b) { return a.t - b.t; }); }
-function mins(v) { var p = (v || '0:0').split(':'); return (+p[0]) * 60 + (+p[1]); }
-function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+function fmtVol(ml) { return fmtVolIn(ml, settings.unit); }
+function sorted() { return sortEntries(log); }
 function find(id) { for (var i = 0; i < log.length; i++) if (log[i].id === id) return log[i]; return null; }
-function labelOf(list, v) { for (var i = 0; i < list.length; i++) if (list[i][0] === v) return list[i][1]; return ''; }
-function pad(n) { return ('0' + n).slice(-2); }
-function toLocalInput(ms) { var d = new Date(ms); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
-function dayRange(offset) {
-  var b = new Date(); b.setHours(0,0,0,0); b.setDate(b.getDate() + offset);
-  var e = new Date(b); e.setDate(e.getDate() + 1);
-  return [b.getTime(), e.getTime()];
-}
 function svgIcon(id, px, cls) {
   var s = document.createElementNS(NS, 'svg'); s.setAttribute('class', 'ic' + (cls ? ' ' + cls : '')); s.setAttribute('aria-hidden', 'true');
   if (px) { s.style.width = px + 'px'; s.style.height = px + 'px'; }
   var u = document.createElementNS(NS, 'use'); u.setAttribute('href', '#' + id); s.appendChild(u); return s;
 }
 
-function inferBed(wakeT, lastWake) {
-  var p = (settings.nightStart || '22:00').split(':'), d = new Date(wakeT); d.setHours(+p[0], +p[1], 0, 0);
-  var t = d.getTime(); if (t >= wakeT) t -= DAY;
-  return Math.max(t, lastWake);
-}
-function refreshSleep() {
-  var m = sorted().filter(isSleep), out = [], openBed = null, lastWake = -Infinity;
-  m.forEach(function (x) {
-    if (x.type === 'bed') { if (openBed !== null) out.push([openBed, openBed + 12 * H, false]); openBed = x.t; }
-    else {
-      if (openBed !== null) { out.push([openBed, x.t, false]); openBed = null; }
-      else out.push([inferBed(x.t, lastWake), x.t, true]);
-      lastWake = x.t;
-    }
-  });
-  if (openBed !== null) out.push([openBed, openBed + 12 * H, false]);
-  periods = out; markers = m.map(function (x) { return x.t; });
-}
-function clockNight(ms) {
-  var d = new Date(ms), m = d.getHours() * 60 + d.getMinutes();
-  var s = mins(settings.nightStart), e = mins(settings.nightEnd);
-  if (s === e) return false;
-  return s > e ? (m >= s || m < e) : (m >= s && m < e);
-}
-function isNight(ms) {
-  var i;
-  for (i = 0; i < periods.length; i++) if (ms >= periods[i][0] && ms < periods[i][1]) return true;
-  for (i = 0; i < markers.length; i++) if (Math.abs(ms - markers[i]) < 12 * H) return false;
-  return clockNight(ms);
-}
-function isAsleep() {
-  var m = sorted().filter(isSleep), l = m[m.length - 1];
-  return !!(l && l.type === 'bed' && Date.now() - l.t < 16 * H);
-}
+function refreshSleep() { sleep = sleepModel(sorted(), settings.nightStart); }
+function isNight(ms) { return isNightAt(ms, sleep, settings.nightStart, settings.nightEnd); }
+function isAsleep() { return isAsleepAt(sleep, Date.now()); }
 function syncSleepBtn() {
   var a = isAsleep();
   $('sleepUse').setAttribute('href', a ? '#i-sun' : '#i-moon');
@@ -188,16 +135,7 @@ function renderTrash() {
   });
 }
 
-function gaps() {
-  var info = {}, lastD = null, lastP = null, lastS = null;
-  sorted().forEach(function (x) {
-    if (isSleep(x)) return;
-    if (x.type === 'solid') { info[x.id] = { solid: lastS !== null ? x.t - lastS : null }; lastS = x.t; return; }
-    info[x.id] = { drink: lastD !== null ? x.t - lastD : null, pass: lastP !== null ? x.t - lastP : null };
-    if (x.type === 'drink') lastD = x.t; else lastP = x.t;
-  });
-  return info;
-}
+function gaps() { return computeGaps(sorted()); }
 function gapLine(x, g) {
   if (x.type === 'solid') return (g.solid !== null && g.solid !== undefined && g.solid < 3 * DAY) ? fmtDur(g.solid) + ' since last solid' : 'No solid in the previous 3 days';
   if (x.type === 'pass') return (g.pass !== null && g.pass < DAY) ? fmtDur(g.pass) + ' after last pass' : 'No pass in the previous 24 h';
@@ -210,6 +148,7 @@ function lastSize(type, exceptId) {
   return null;
 }
 function sleptText(x) {
+  var periods = sleep.periods;
   for (var i = 0; i < periods.length; i++) if (periods[i][1] === x.t && !periods[i][2]) return 'Slept ' + fmtDur(periods[i][1] - periods[i][0]);
   return '';
 }
@@ -296,7 +235,6 @@ function setSize(label, ml) {
 // slim confirmation bar
 function hideBar() { clearTimeout(barTimer); barId = null; barRestore = null; $('barMore').hidden = false; $('bar').hidden = true; }
 function armBar(ms) { clearTimeout(barTimer); barTimer = setTimeout(hideBar, ms); }
-var KINDS_SHORT = [['water', 'Water'], ['teacoffee', 'Tea/coffee'], ['alcohol', 'Alcohol'], ['other', 'Other']];
 function lastKind(exceptId) {
   var q = sorted().reverse();
   for (var i = 0; i < q.length; i++) if (q[i].type === 'drink' && q[i].kind && q[i].id !== exceptId) return q[i].kind;
@@ -498,7 +436,6 @@ function nightSegments(from, step, count) {
   if (cur !== null) segs.push([cur, count]);
   return segs;
 }
-function median(a) { var b = a.slice().sort(function (x, y) { return x - y; }), m = Math.floor(b.length / 2); return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; }
 function el(tag, cls, txt) { var e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; }
 function segBar(parts) {
   var bar = el('div', 'seg');
@@ -506,19 +443,7 @@ function segBar(parts) {
   return bar;
 }
 function signed(n, f) { return n === 0 ? 'same' : (n > 0 ? '+' : '−') + f(Math.abs(n)); }
-function periodStats(a, b) {
-  var st = { outMl: 0, inMl: 0, outDays: {}, inDays: {}, night: 0, passes: [], solids: 0, med: null };
-  sorted().forEach(function (x) {
-    if (x.t < a || x.t >= b || isSleep(x)) return;
-    var dk = startOfDay(x.t);
-    if (x.type === 'pass') { st.passes.push(x.t); if (isNight(x.t)) st.night++; if (x.size) { st.outMl += x.size.ml; st.outDays[dk] = 1; } }
-    else if (x.type === 'drink') { if (x.size) { st.inMl += x.size.ml; st.inDays[dk] = 1; } }
-    else if (x.type === 'solid') st.solids++;
-  });
-  var g = []; for (var k = 1; k < st.passes.length; k++) if (st.passes[k] - st.passes[k - 1] < DAY) g.push(st.passes[k] - st.passes[k - 1]);
-  st.med = g.length ? median(g) : null; st.outN = Object.keys(st.outDays).length; st.inN = Object.keys(st.inDays).length;
-  return st;
-}
+function periodStats(a, b) { return periodStatsOf(sorted(), a, b, isNight); }
 function tile(label, wide) { var t = el('div', 'tile' + (wide ? ' wide' : '')); t.appendChild(el('div', 'l', label)); return t; }
 function renderInsights() {
   each('[data-range]', function (c) { c.setAttribute('aria-pressed', +c.getAttribute('data-range') === rangeDays ? 'true' : 'false'); });
@@ -791,18 +716,9 @@ function renderReport() {
   });
   box.appendChild(t);
 }
-function csvCell(v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
 function csv() {
-  var lines = ['date,time,type,drink_type,size,ml,night,urgency,bristol,note'];
-  reportData().forEach(function (d) {
-    d.items.forEach(function (x) {
-      var dt = new Date(x.t);
-      var ds = dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate());
-      var ts = pad(dt.getHours()) + ':' + pad(dt.getMinutes());
-      lines.push([ds, ts, x.type, x.kind || '', x.size ? x.size.label : '', x.size ? Math.round(x.size.ml) : '', x.type === 'pass' ? (isNight(x.t) ? 'yes' : 'no') : '', x.urgency || '', x.bristol || '', csvCell(x.note)].join(','));
-    });
-  });
-  return lines.join('\n');
+  var items = []; reportData().forEach(function (d) { items = items.concat(d.items); });
+  return toCsv(items, isNight);
 }
 function copyText(text, msgEl, okMsg, onOk) {
   function done(ok) { msgEl.textContent = ok ? okMsg : 'Copy failed. Select and copy manually.'; if (ok && onOk) onOk(); setTimeout(function () { msgEl.textContent = ''; }, 2500); }
@@ -886,7 +802,6 @@ document.addEventListener('keydown', function (e) {
     else if (!$('reportSheet').hidden) hideOverlay('reportSheet');
     else if (!$('settingsSheet').hidden) hideOverlay('settingsSheet');
     else if (!$('logSheet').hidden) hideOverlay('logSheet');
-    else if (!$('sheet').hidden) closeSheet();
     else hideOverlay('insightsSheet');
   }
 });
@@ -919,7 +834,7 @@ $('copyBackup').addEventListener('click', function () { copyText(backupText(), $
 $('dlBackup').addEventListener('click', function () { saveFile('drink-pass-backup-' + stamp() + '.json', backupText(), $('backupMsg'), markBackup); });
 
 // ---------- safer storage: automatic copies, recovery, checked restore ----------
-var VALID_TYPES = ['drink', 'pass', 'solid', 'bed', 'wake'], SETTING_KEYS = ['unit', 'nightStart', 'nightEnd', 'askSize', 'showUrgency', 'showKind', 'range', 'dotScale', 'trackSolid', 'showBristol', 'compare'];
+var SETTING_KEYS = ['unit', 'nightStart', 'nightEnd', 'askSize', 'showUrgency', 'showKind', 'range', 'dotScale', 'trackSolid', 'showBristol', 'compare'];
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function idbOpen(cb) {
   try {

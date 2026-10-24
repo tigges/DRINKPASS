@@ -1,6 +1,6 @@
 /* Drink & Pass Journal service worker: keeps the app working offline. Entries are never touched here. */
 var CACHE = 'dp-shell-v2', FONTS = 'dp-fonts-v1';
-var SHELL = ['./', './index.html', './css/app.css', './js/app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png', './icons/favicon-32.png'];
+var SHELL = ['./', './index.html', './css/app.css', './js/app.js', './js/core.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png', './icons/favicon-32.png'];
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));
 });
