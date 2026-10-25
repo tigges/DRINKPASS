@@ -1,4 +1,4 @@
-export var OZ = 29.5735, H = 3600000, DAY = 86400000;
+export var OZ = 29.5735, H = 3600000, DAY = 86400000, MAX_ML = 5000;
 
 export var VALID_TYPES = ['drink', 'pass', 'solid', 'bed', 'wake'];
 export var PRESETS = {
@@ -19,6 +19,22 @@ export function labelOf(list, v) { for (var i = 0; i < list.length; i++) if (lis
 export function median(a) { var b = a.slice().sort(function (x, y) { return x - y; }), m = Math.floor(b.length / 2); return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; }
 
 export function startOfDay(ms) { var d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); }
+/** The latest moment showing clock time "HH:MM" before `ms` (or at it, unless `strict`). Steps back by calendar day, so 23- and 25-hour days work. */
+export function lastClockTime(hhmm, ms, strict) {
+  var p = String(hhmm || '0:0').split(':'), d = new Date(ms);
+  d.setHours(+p[0], +p[1], 0, 0);
+  if (strict ? d.getTime() >= ms : d.getTime() > ms) { d.setDate(d.getDate() - 1); d.setHours(+p[0], +p[1], 0, 0); }
+  return d.getTime();
+}
+/** Position of `ms` on a 00:00–24:00 clock face, 0 to 1. Charts use this so clock changes don't shift or hide entries. */
+export function clockFraction(ms) { var d = new Date(ms); return (d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60) / 1440; }
+/** Middle of the k-th `stepMin`-minute slot of the local day starting at `dayStart`, by clock time. */
+export function clockSlot(dayStart, k, stepMin) { var d = new Date(dayStart); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, k * stepMin + stepMin / 2).getTime(); }
+/** Number of days from today to the day of `ms` (0 today, -1 yesterday), by calendar date. */
+export function dayOffsetOf(ms, now) {
+  var a = new Date(startOfDay(ms)), b = new Date(startOfDay(now === undefined ? Date.now() : now));
+  return Math.round((Date.UTC(a.getFullYear(), a.getMonth(), a.getDate()) - Date.UTC(b.getFullYear(), b.getMonth(), b.getDate())) / DAY);
+}
 export function dayRange(offset, now) {
   var b = new Date(now === undefined ? Date.now() : now); b.setHours(0, 0, 0, 0); b.setDate(b.getDate() + offset);
   var e = new Date(b); e.setDate(e.getDate() + 1);
@@ -61,9 +77,7 @@ function firstAtOrAfter(sorted, v) {
 }
 
 function inferBed(wakeT, lastWake, nightStart) {
-  var p = (nightStart || '22:00').split(':'), d = new Date(wakeT); d.setHours(+p[0], +p[1], 0, 0);
-  var t = d.getTime(); if (t >= wakeT) t -= DAY;
-  return Math.max(t, lastWake);
+  return Math.max(lastClockTime(nightStart || '22:00', wakeT, true), lastWake);
 }
 /** Sleep periods as [start, end, inferred] from bed/wake markers in time-sorted entries. */
 export function sleepModel(sorted, nightStart) {
@@ -201,7 +215,7 @@ export function sanitizeEntry(x, now) {
   var e = { id: x.id, type: x.type, t: Math.round(x.t) };
   if ((x.type === 'drink' || x.type === 'pass') && x.size && typeof x.size === 'object') {
     var ml = +x.size.ml;
-    if (isFinite(ml) && ml > 0 && ml <= 5000) e.size = { label: SIZE_LABELS.indexOf(x.size.label) > -1 ? x.size.label : 'exact', ml: ml };
+    if (isFinite(ml) && ml > 0 && ml <= MAX_ML) e.size = { label: SIZE_LABELS.indexOf(x.size.label) > -1 ? x.size.label : 'exact', ml: ml };
   }
   if (x.type === 'drink' && inList(KINDS, x.kind)) e.kind = x.kind;
   if ((x.type === 'pass' || x.type === 'solid') && inList(URG, x.urgency)) e.urgency = x.urgency;

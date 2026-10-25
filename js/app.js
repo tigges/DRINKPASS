@@ -1,9 +1,9 @@
 import {
-  OZ, H, DAY, PRESETS, URG, KINDS, KINDS_SHORT, NAMES, BRISTOL,
+  OZ, DAY, PRESETS, URG, KINDS, KINDS_SHORT, NAMES, BRISTOL,
   isSleep, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime as fmtTimeIn, fmtHour, fmtDur as fmtDurIn, agoText as agoTextIn, toLocalInput,
   sortEntries, isoDate, between, sleepModel, sanitizeSettings, migrateLog, DEFAULT_SETTINGS, SCHEMA, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
   fmtVol as fmtVolIn
-  , fvSummary, drinkReminder
+  , fvSummary, drinkReminder, lastClockTime, clockFraction, clockSlot, dayOffsetOf, MAX_ML
 } from './core.js';
 import { toFhirBundle } from './fhir.js';
 import { encryptBackup, decryptBackup, isEncryptedBackup } from './crypto.js';
@@ -115,14 +115,13 @@ function getWhen() {
   if (whenMode === '5') return now - 5 * 60000;
   if (whenMode === '15') return now - 15 * 60000;
   var v = $('pickTime').value; if (!v) return now;
-  var p = v.split(':'), d = new Date(); d.setHours(+p[0], +p[1], 0, 0);
-  var t = d.getTime(); if (t > now) t -= DAY; return t;
+  return lastClockTime(v, now);
 }
 function whenLabel() {
   if (whenMode === 'now') return t('Now');
   if (whenMode === '5') return t('5 min ago');
   if (whenMode === '15') return t('15 min ago');
-  return $('pickTime').value ? t('At {time}', { time: fmtTime(getWhen()) }) : t('Pick a time');
+  return $('pickTime').value ? t('At {time}', { time: fmtWhen(getWhen()) }) : t('Pick a time');
 }
 function toggleWhen(open) { $('whenOpts').hidden = !open; $('whenPill').setAttribute('aria-expanded', open ? 'true' : 'false'); }
 function setWhen(mode) {
@@ -143,13 +142,14 @@ function ripple(btn, ev) {
 }
 
 function addEntry(type, ev) {
-  var tapNow = Date.now();
-  if (lastTap[type] && tapNow - lastTap[type] < 1500) { if (barId) $('barMsg').textContent = t('Already logged. Tap Undo if that was a mistake.'); return; }
-  lastTap[type] = tapNow; barStash = null; tryPersist();
+  // Bed and wake share one key: the moon turns into the sun after the first tap, so a double tap would log both.
+  var tapNow = Date.now(), tapKey = isSleep({ type: type }) ? 'sleep' : type;
+  if (lastTap[tapKey] && tapNow - lastTap[tapKey] < 1500) { if (barId) $('barMsg').textContent = t('Already logged. Tap Undo if that was a mistake.'); return; }
+  lastTap[tapKey] = tapNow; barStash = null; tryPersist();
   var at = getWhen();
   var entry = { id: Date.now() + '-' + Math.random().toString(36).slice(2, 7), type: type, t: at };
   log.push(entry); save();
-  dayOffset = Math.min(0, Math.round((startOfDay(at) - startOfDay(Date.now())) / DAY));
+  dayOffset = Math.min(0, dayOffsetOf(at));
   setWhen('now');
   render();
   showBar(entry);
@@ -222,8 +222,11 @@ function buildOptions(box, list, current, onPick) {
     box.appendChild(b);
   });
 }
-function toggler(field) {
-  var f = function (e, v) { if (e[field] === v) delete e[field]; else e[field] = v; };
+function toggler(field, linked) {
+  var f = function (e, v) {
+    var clear = e[field] === v, mate = linked ? partner(e) : null;
+    [e, mate].forEach(function (x) { if (!x) return; if (clear) delete x[field]; else x[field] = v; });
+  };
   f.current = function (e) { return e[field]; };
   return f;
 }
@@ -259,7 +262,7 @@ function openSheet(entry, keepTime) {
     $('exactUnit').textContent = settings.unit === 'oz' ? 'fl oz' : 'ml'; $('exactInput').value = '';
     if (entry.type === 'drink' && settings.showKind) buildOptions($('kindBtns'), KINDS, entry.kind, toggler('kind'));
   }
-  if (hasUrg && settings.showUrgency) buildOptions($('urgBtns'), URG, entry.urgency, toggler('urgency'));
+  if (hasUrg && settings.showUrgency) buildOptions($('urgBtns'), URG, entry.urgency, toggler('urgency', true));
   if (solid && settings.showBristol) buildOptions($('bristolBtns'), BRISTOL, entry.bristol, toggler('bristol'));
   if (!sl) {
     $('noteInput').value = entry.note || '';
@@ -269,7 +272,7 @@ function openSheet(entry, keepTime) {
   if ($('sheet').hidden) openDialog('sheet');
 }
 function hideSheet() { flushNote(); closeDialog('sheet'); }
-function closeSheet() { sheetId = null; render(); hideSheet(); }
+function closeSheet() { settleInside('sheet'); sheetId = null; render(); hideSheet(); }
 function setSize(label, ml) {
   var e = find(sheetId); if (!e) return;
   e.size = { label: label, ml: ml }; save(); render(); openSheet(e);
@@ -453,7 +456,7 @@ function renderLatest() {
   var h = wrap.clientHeight, n = Math.max(2, Math.min(5, Math.floor((h - MORE_H) / ROW_H)));
   s.slice(0, n).forEach(function (x) { wrap.appendChild(buildRow(x, info, true)); });
   var m = document.createElement('button'); m.type = 'button'; m.className = 'more';
-  m.appendChild(document.createTextNode(t('All {n} entries', { n: s.length }))); m.appendChild(svgIcon('i-right', 16));
+  m.appendChild(document.createTextNode(tn(s.length, '{n} entry', 'All {n} entries'))); m.appendChild(svgIcon('i-right', 16));
   m.addEventListener('click', function () { dayOffset = 0; renderLog(); showOverlay('logSheet'); });
   wrap.appendChild(m);
 }
@@ -469,10 +472,11 @@ function renderLog() {
 }
 function renderList() { renderLatest(); if (!$('logSheet').hidden) renderLog(); }
 
-function nightSegments(from, step, count) {
+/** Runs of night slots as [first, end) indexes; `at(k)` gives the moment to test for slot k. */
+function nightSegments(at, count) {
   var segs = [], cur = null;
   for (var k = 0; k < count; k++) {
-    var n = isNight(from + k * step + step / 2);
+    var n = isNight(at(k));
     if (n && cur === null) cur = k;
     if (!n && cur !== null) { segs.push([cur, k]); cur = null; }
   }
@@ -504,7 +508,7 @@ function renderInsights() {
   if (rangeDays === 1) {
     var now = Date.now(), start = now - DAY, step = 10 * 60000, count = 144;
     lab.style.display = 'none'; $('axis').hidden = true; tl.hidden = false; plot.style.height = '84px';
-    nightSegments(start, step, count).forEach(function (sg) {
+    nightSegments(function (k) { return start + k * step + step / 2; }, count).forEach(function (sg) {
       var d = document.createElement('div'); d.className = 'nb';
       d.style.left = (sg[0] / count * 100) + '%'; d.style.width = ((sg[1] - sg[0]) / count * 100) + '%'; d.style.top = '0'; d.style.height = '100%'; plot.appendChild(d);
     });
@@ -519,9 +523,9 @@ function renderInsights() {
     });
     function label(txt, pos) { var sp = document.createElement('span'); sp.textContent = txt; sp.style.left = pos + '%'; tl.appendChild(sp); }
     label(t('24 h ago'), 7); label(t('Now'), 95);
-    for (var tt = Math.ceil(start / H) * H; tt < now; tt += H) {
-      var dt = new Date(tt);
-      if (dt.getHours() % 6 === 0) { var ps = (tt - start) / DAY * 100; if (ps > 20 && ps < 85) label(fmtHour(dt.getHours(), settings.clock), ps); }
+    // Step through local whole hours, which aren't whole UTC hours in zones like India or Newfoundland.
+    for (var dt = new Date(start); dt.setMinutes(60, 0, 0) < now;) {
+      if (dt.getHours() % 6 === 0) { var ps = (dt.getTime() - start) / DAY * 100; if (ps > 20 && ps < 85) label(fmtHour(dt.getHours(), settings.clock), ps); }
     }
   } else {
     lab.style.display = ''; $('axis').hidden = false; fillAxis($('axis')); tl.hidden = true;
@@ -541,15 +545,15 @@ function renderInsights() {
         l.textContent = !showLab ? '' : off === 0 ? t('Today') : rangeDays <= 7 ? fmtDate(ds, { weekday: 'short' }) : fmtDate(ds, { day: 'numeric', month: 'short' });
         lab.appendChild(l);
         if (i > 0) { var ln = document.createElement('div'); ln.className = 'ln'; ln.style.top = (i * rowH) + 'px'; plot.appendChild(ln); }
-        nightSegments(ds, 15 * 60000, 96).forEach(function (sg) {
+        nightSegments(function (k) { return clockSlot(ds, k, 15); }, 96).forEach(function (sg) {
           var d = document.createElement('div'); d.className = 'nb';
           d.style.left = (sg[0] / 96 * 100) + '%'; d.style.width = ((sg[1] - sg[0]) / 96 * 100) + '%';
           d.style.top = (i * rowH) + 'px'; d.style.height = rowH + 'px'; plot.appendChild(d);
         });
         var items = between(s, r[0], r[1]).filter(function (x) { return !isSleep(x); });
         if (items.length) withData++;
-        rangeItems = rangeItems.concat(items);
-        items.forEach(function (x) { mk(x, x.type, (x.t - ds) / DAY * 100, i * rowH + (x.type === 'drink' ? cD : x.type === 'solid' ? cS : cP), base); });
+        Array.prototype.push.apply(rangeItems, items);
+        items.forEach(function (x) { mk(x, x.type, clockFraction(x.t) * 100, i * rowH + (x.type === 'drink' ? cD : x.type === 'solid' ? cS : cP), base); });
         var dp = items.filter(function (x) { return x.type === 'pass'; });
         var si = sum(items.filter(function (x) { return x.type === 'drink'; })), so = sum(dp);
         dayIn.push(si[0]); dayOut.push(so[0]); if (si[1]) inC++; if (so[1]) outC++;
@@ -783,13 +787,13 @@ function buildDiaryChart(box, data) {
   data.forEach(function (d, i) {
     var l = el('div', '', fmtDate(d.start, { weekday: 'short', day: 'numeric' })); l.style.cssText = 'height:' + rowH + 'px;line-height:' + rowH + 'px'; lab.appendChild(l);
     if (i > 0) { var ln = el('div', 'ln'); ln.style.top = (i * rowH) + 'px'; plot.appendChild(ln); }
-    nightSegments(d.start, 15 * 60000, 96).forEach(function (sg) {
+    nightSegments(function (k) { return clockSlot(d.start, k, 15); }, 96).forEach(function (sg) {
       var nb = el('div', 'nb'); nb.style.left = (sg[0] / 96 * 100) + '%'; nb.style.width = ((sg[1] - sg[0]) / 96 * 100) + '%'; nb.style.top = (i * rowH) + 'px'; nb.style.height = rowH + 'px'; plot.appendChild(nb);
     });
     d.items.forEach(function (x) {
       if (isSleep(x)) return;
       var dt = el('div', 'd ' + x.type + (!x.size && x.type !== 'solid' ? ' ns' : ''));
-      dt.style.width = dt.style.height = base + 'px'; dt.style.marginLeft = (-base / 2) + 'px'; dt.style.left = ((x.t - d.start) / DAY * 100) + '%';
+      dt.style.width = dt.style.height = base + 'px'; dt.style.marginLeft = (-base / 2) + 'px'; dt.style.left = (clockFraction(x.t) * 100) + '%';
       dt.style.top = (i * rowH + (x.type === 'drink' ? cD : x.type === 'solid' ? cS : cP) - base / 2) + 'px'; dt.style.pointerEvents = 'none'; plot.appendChild(dt);
     });
   });
@@ -902,14 +906,28 @@ function stamp() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getM
 
 function render() {
   document.body.classList.toggle('clock12', settings.clock === '12');
+  renderedDay = startOfDay(Date.now());
   refreshSleep(); syncSleepBtn(); renderStats(); renderList(); updateNudge(); checkReminder();
-  if (!$('insightsSheet').hidden) renderInsights();
-  if (!$('reportSheet').hidden) renderReport();
+  renderRevealed();
 }
+// Insights and the report are only redrawn while on top; closing whatever covers them redraws them then.
+function topDialog() { return dialogs.length ? dialogs[dialogs.length - 1].id : null; }
+function renderRevealed() {
+  var top = topDialog();
+  if (top === 'insightsSheet') renderInsights();
+  if (top === 'reportSheet') renderReport();
+}
+function refreshInsights() {
+  var a = document.activeElement, id = a && $('insightsSheet').contains(a) ? a.getAttribute('data-id') : null;
+  renderInsights();
+  if (id) { var n = $('plot').querySelector('[data-id="' + CSS.escape(id) + '"]'); if (n) n.focus(); }
+}
+var renderedDay = 0;
+function catchUpDay() { if (startOfDay(Date.now()) !== renderedDay) render(); }
 // Open dialogs, top last. Everything outside the top one is made inert, and closing returns focus to what opened it.
 var dialogs = [], LAYERS = ['app', 'logSheet', 'insightsSheet', 'reportSheet', 'settingsSheet', 'sheet'];
 function syncInert() {
-  var top = dialogs.length ? dialogs[dialogs.length - 1].id : null;
+  var top = topDialog();
   LAYERS.forEach(function (id) { $(id).inert = top !== null && id !== top; });
   $('scrim').hidden = top !== 'sheet';
 }
@@ -922,10 +940,12 @@ function openDialog(id) {
   if (first) first.focus();
 }
 function closeDialog(id) {
-  var d = $(id), rec = null;
+  settleInside(id);
+  var d = $(id), rec = null, wasTop = topDialog() === id;
   dialogs = dialogs.filter(function (q) { if (q.id === id) rec = q; return q.id !== id; });
   d.hidden = true; syncInert();
   if (!rec) return;
+  if (wasTop) renderRevealed();
   var back = rec.from;
   // Lists re-render while a dialog is open, so find the replacement for a row or dot that opened it.
   if ((!back || !back.isConnected) && rec.fromId) back = document.querySelector('[data-id="' + CSS.escape(rec.fromId) + '"]');
@@ -939,7 +959,8 @@ $('passBtn').addEventListener('click', function (e) { addEntry('pass', e); });
 $('sleepBtn').addEventListener('click', function () { addEntry(isAsleep() ? 'wake' : 'bed'); });
 $('whenPill').addEventListener('click', function () { toggleWhen($('whenOpts').hidden); });
 each('[data-when]', function (b) { b.addEventListener('click', function () { setWhen(b.getAttribute('data-when')); }); });
-$('pickTime').addEventListener('change', function () { $('whenText').textContent = whenLabel(); toggleWhen(false); });
+// iOS fires change on every wheel turn, so picking only updates the label; logging or tapping the pill closes the options.
+['input', 'change'].forEach(function (ev) { $('pickTime').addEventListener(ev, function () { $('whenText').textContent = whenLabel(); }); });
 $('prev').addEventListener('click', function () { dayOffset -= 1; renderList(); });
 $('next').addEventListener('click', function () { if (dayOffset < 0) { dayOffset += 1; renderList(); } });
 $('sheetSkip').addEventListener('click', closeSheet);
@@ -949,14 +970,20 @@ $('barMore').addEventListener('click', function () { var e = find(barId); if (e)
 var swipeY = null;
 $('bar').addEventListener('pointerdown', function (e) { swipeY = e.clientY; if (barId && rowsAsked(find(barId) || {}).length) armBar(10000); });
 $('bar').addEventListener('pointerup', function (e) { if (swipeY !== null && swipeY - e.clientY > 30) hideBar(); swipeY = null; });
-document.addEventListener('pointerdown', function (e) { if ((barId || barRestore) && !$('bar').contains(e.target)) hideBar(); });
+// The log buttons replace the bar themselves; hiding it first would swallow the "Already logged" warning on a double tap.
+document.addEventListener('pointerdown', function (e) { if ((barId || barRestore) && !$('bar').contains(e.target) && !(e.target.closest && e.target.closest('.big, #sleepBtn'))) hideBar(); });
 $('sheetRemove').addEventListener('click', function () { if (!sheetId) return; var re = find(sheetId), rm = partner(re); remove(sheetId, true); if (re) showRemovedBar(re, rm); });
 $('exactToggle').addEventListener('click', function () { $('exactRow').hidden = false; $('exactInput').focus(); });
-$('exactSave').addEventListener('click', function () {
-  var v = parseFloat($('exactInput').value);
-  if (!(v > 0)) { $('exactInput').focus(); return; }
-  setSize('exact', settings.unit === 'oz' ? v * OZ : v);
-});
+function saveExact() {
+  var v = parseFloat(String($('exactInput').value).replace(',', '.')), ml = settings.unit === 'oz' ? v * OZ : v;
+  if (!(ml > 0 && ml <= MAX_ML)) {
+    $('sheetInfo').textContent = t('Enter an amount up to {max}.', { max: fmtVol(MAX_ML) }); $('sheetInfo').hidden = false;
+    $('exactInput').focus(); return;
+  }
+  setSize('exact', ml);
+}
+$('exactSave').addEventListener('click', saveExact);
+$('exactInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); saveExact(); } });
 $('noteToggle').addEventListener('click', function () { $('noteRow').hidden = false; $('noteInput').focus(); });
 var noteTimer = null, pendingNote = null;
 function flushNote() { if (!pendingNote) return; clearTimeout(noteTimer); pendingNote = null; save(); }
@@ -968,22 +995,29 @@ $('noteInput').addEventListener('input', function () {
 });
 $('noteInput').addEventListener('blur', flushNote);
 $('timeToggle').addEventListener('click', function () { $('timeRow').hidden = false; $('timeInput').focus(); });
-$('timeInput').addEventListener('change', function () {
+// iOS fires change on every wheel turn while its picker is open, so a focused field waits until it loses focus.
+var settlers = [];
+function onSettled(input, fn) {
+  var s = { input: input, pending: false, flush: function () { if (s.pending) { s.pending = false; fn.call(input); } } };
+  input.addEventListener('change', function () { if (document.activeElement === input) s.pending = true; else fn.call(input); });
+  input.addEventListener('blur', s.flush);
+  settlers.push(s);
+}
+// Closing a dialog applies whatever is still being picked; Chromium's time fields don't fire blur when hidden or blurred by script.
+function settleInside(id) { settlers.forEach(function (s) { if ($(id).contains(s.input)) s.flush(); }); }
+function moveEntry(e, ms, reopen) {
+  if (ms > Date.now() + 60000) { $('sheetInfo').textContent = t('The time can’t be in the future.'); $('sheetInfo').hidden = false; $('timeInput').value = toLocalInput(e.t); return; }
+  var mate = partner(e);
+  e.t = ms; if (mate) mate.t = ms;
+  save(); dayOffset = Math.min(0, dayOffsetOf(ms));
+  render(); if (reopen) openSheet(e, true);
+}
+onSettled($('timeInput'), function () {
   var e = find(sheetId); if (!e || !this.value) return;
   var ms = new Date(this.value).getTime();
-  if (isNaN(ms)) return;
-  if (ms > Date.now() + 60000) { $('sheetInfo').textContent = t('The time can’t be in the future.'); $('sheetInfo').hidden = false; this.value = toLocalInput(e.t); return; }
-  e.t = ms; save();
-  dayOffset = Math.min(0, Math.round((startOfDay(ms) - startOfDay(Date.now())) / DAY));
-  render(); openSheet(e, true);
+  if (!isNaN(ms) && ms !== e.t - e.t % 60000) moveEntry(e, ms, !$('sheet').hidden);
 });
-function nudgeTime(dm) {
-  var e = find(sheetId); if (!e) return;
-  var ms = e.t + dm * 60000;
-  if (ms > Date.now() + 60000) { $('sheetInfo').textContent = t('The time can’t be in the future.'); $('sheetInfo').hidden = false; return; }
-  e.t = ms; save(); dayOffset = Math.min(0, Math.round((startOfDay(ms) - startOfDay(Date.now())) / DAY));
-  render(); openSheet(e, true);
-}
+function nudgeTime(dm) { var e = find(sheetId); if (e) moveEntry(e, e.t + dm * 60000, true); }
 $('nudgeM').addEventListener('click', function () { nudgeTime(-5); });
 $('nudgeP').addEventListener('click', function () { nudgeTime(5); });
 
@@ -1031,8 +1065,16 @@ each('[data-toggle]', function (b) {
 each('[data-dots]', function (b) {
   b.addEventListener('click', function () { settings.dotScale = b.getAttribute('data-dots'); save(); syncSettings(); renderInsights(); });
 });
-$('nightStart').addEventListener('change', function () { if (this.value) { settings.nightStart = this.value; save(); render(); } });
-$('nightEnd').addEventListener('change', function () { if (this.value) { settings.nightEnd = this.value; save(); render(); } });
+function setNight(field) {
+  return function () {
+    if (!this.value) return;
+    var other = field === 'nightStart' ? settings.nightEnd : settings.nightStart;
+    if (this.value === other) { $('nightMsg').textContent = t('Night can’t start and end at the same time.'); this.value = settings[field]; return; }
+    $('nightMsg').textContent = ''; settings[field] = this.value; save(); render();
+  };
+}
+onSettled($('nightStart'), setNight('nightStart'));
+onSettled($('nightEnd'), setNight('nightEnd'));
 function backupText() { return JSON.stringify({ version: 1, schema: 2, app: 'drink-pass-journal', exportedAt: new Date().toISOString(), count: log.length, log: log, settings: settings }); }
 function protectedBackup() {
   var pass = $('backupPass').value;
@@ -1220,7 +1262,7 @@ window.addEventListener('storage', function (e) {
   $('loadWarn').hidden = !loadProblem;
   render();
 });
-document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') { flushNote(); mirrorNow(); } });
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') { flushNote(); mirrorNow(); } else catchUpDay(); });
 window.addEventListener('pagehide', flushNote);
 
 function syncSettings() {
@@ -1261,7 +1303,10 @@ try {
     ro.observe($('list'));
   }
 } catch (e) {}
-setInterval(function () { refreshSleep(); renderStats(); if (!$('insightsSheet').hidden && rangeDays === 1) renderInsights(); updateNudge(); checkReminder(); }, 30000);
+setInterval(function () {
+  if (startOfDay(Date.now()) !== renderedDay) { render(); return; }
+  refreshSleep(); renderStats(); if (topDialog() === 'insightsSheet' && rangeDays === 1) refreshInsights(); updateNudge(); checkReminder();
+}, 30000);
 
 var remindSnooze = 0, notifiedFor = null;
 function checkReminder() {

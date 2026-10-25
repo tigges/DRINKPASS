@@ -297,5 +297,8 @@ export default {
   'on {a} of {b} days': 'in {a} giorni su {b}',
   'typical': 'tipico',
   'hard': 'dure',
-  'liquid': 'liquide'
+  'liquid': 'liquide',
+  '{n} entry': '{n} voce',
+  'Enter an amount up to {max}.': 'Inserisci una quantità fino a {max}.',
+  'Night can’t start and end at the same time.': 'La notte non può iniziare e finire alla stessa ora.',
 };

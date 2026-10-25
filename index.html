@@ -100,8 +100,8 @@
     </button>
   </div>
 
-  <div class="bar" id="bar" role="status" aria-live="polite" hidden>
-    <div class="barrow"><span id="barMsg"></span><span class="baracts"><button type="button" id="barMore">More</button><button type="button" id="barUndo">Undo</button></span></div>
+  <div class="bar" id="bar" hidden>
+    <div class="barrow"><span id="barMsg" role="status"></span><span class="baracts"><button type="button" id="barMore">More</button><button type="button" id="barUndo">Undo</button></span></div>
     <div id="barRows"></div>
   </div>
 
@@ -124,7 +124,7 @@
     <div class="presets" id="presets"></div>
     <button class="txt exactlink" id="exactToggle" type="button"><svg class="ic sm"><use href="#i-pencil"/></svg>Enter exact amount</button>
     <div class="exactrow" id="exactRow" hidden>
-      <input id="exactInput" type="number" inputmode="decimal" min="0" step="any" aria-label="Exact amount">
+      <input id="exactInput" type="text" inputmode="decimal" autocomplete="off" enterkeyhint="done" aria-label="Exact amount">
       <span id="exactUnit" translate="no">ml</span>
       <button class="btn primary" id="exactSave" type="button">Save amount</button>
     </div>
@@ -258,6 +258,7 @@
     <div class="sech">Night hours</div>
     <div class="setrow"><label for="nightStart">Night starts</label><input class="timein" id="nightStart" type="time" value="22:00"></div>
     <div class="setrow"><label for="nightEnd">Night ends</label><input class="timein" id="nightEnd" type="time" value="06:00"></div>
+    <p class="hint warn" id="nightMsg" role="status"></p>
     <p class="hint">Tapping the moon (going to bed) and sun (up for the day) defines your night instead. These hours are the fallback when you haven’t marked sleep.</p>
     <div class="sech">Drink reminders</div>
     <div class="setrow" role="group" aria-label="Remind me to drink after">

@@ -297,5 +297,8 @@ export default {
   'on {a} of {b} days': '{b} 天中有 {a} 天',
   'typical': '正常范围',
   'hard': '硬',
-  'liquid': '稀'
+  'liquid': '稀',
+  '{n} entry': '{n} 条记录',
+  'Enter an amount up to {max}.': '请输入不超过 {max} 的量。',
+  'Night can’t start and end at the same time.': '夜间的开始和结束时间不能相同。',
 };

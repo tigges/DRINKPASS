@@ -34,7 +34,7 @@ html { scroll-padding-top: env(safe-area-inset-top, 0px); }
 body { margin: 0; background: var(--bg); color: var(--ink);
   font-family: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 16px; line-height: 1.35; -webkit-tap-highlight-color: transparent; overflow: hidden; }
-button, input { font: inherit; color: inherit; }
+button, input, textarea, select { font: inherit; color: inherit; }
 button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 svg.ic { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
@@ -169,6 +169,7 @@ svg.ic { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-wid
 .setrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
 .setrow label { min-width: 7em; }
 .hint { color: var(--muted); font-size: .88rem; }
+.hint.warn:empty { display: none; }
 textarea { width: 100%; min-height: 80px; border: 1px solid var(--line); background: var(--surface); border-radius: 14px; padding: 10px; }
 table.rep { width: 100%; border-collapse: collapse; font-size: .92rem; }
 table.rep th, table.rep td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
