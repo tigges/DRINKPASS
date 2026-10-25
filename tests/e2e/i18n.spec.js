@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { restoreSample, openSettings } from './helpers.js';
 import { collectKeys } from '../../scripts/check-i18n.mjs';
 
@@ -129,31 +130,49 @@ test.describe('translated sentences keep their own word order', () => {
   });
 });
 
-test('Save as PDF prints only the clinician summary, titled with its dates', async ({ page }) => {
+const pages = (pdf) => (pdf.toString('latin1').match(/\/Type \/Page /g) || []).length;
+
+test('Save as PDF makes the file itself, without the print window', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-01-15T21:00:00Z'));
   await page.goto('./');
   await restoreSample(page);
   await page.locator('[data-close="settingsSheet"]').click();
   await page.locator('#openReport').click();
   await page.locator('[data-days="3"]').click();
-  await page.evaluate(() => {
-    window.printed = [];
-    window.print = () => window.printed.push({ title: document.title, printing: document.body.classList.contains('printing') });
+  await page.evaluate(() => { window.printed = 0; window.print = () => window.printed++; });
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('#pdfBtn').click()]);
+  expect(dl.suggestedFilename()).toBe('Bladder and drink diary 2026-01-13 – 2026-01-15.pdf');
+  const pdf = readFileSync(await dl.path());
+  expect(pdf.subarray(0, 8).toString()).toBe('%PDF-1.4');
+  expect(pdf.toString('latin1').trimEnd().endsWith('%%EOF')).toBe(true);
+  expect(pages(pdf)).toBe(1);
+  expect(pdf.toString('latin1')).toContain('/Filter /DCTDecode');
+  await expect(page.locator('#reportMsg')).toHaveText('Saved');
+  expect(await page.evaluate(() => window.printed)).toBe(0);
+});
+
+test.describe('on a phone the PDF goes to the share sheet', () => {
+  test.use({ locale: 'zh' });
+  test('in Chinese, over several pages', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-01-15T21:00:00Z'));
+    await page.addInitScript(() => {
+      const base = Date.parse('2026-01-09T07:00:00Z'), log = [];
+      for (let d = 0; d < 7; d++) for (let i = 0; i < 14; i++) log.push({ id: `x${d}-${i}`, type: i % 2 ? 'drink' : 'pass', t: base + d * 864e5 + i * 3600e3, size: { label: 'medium', ml: 250 } });
+      localStorage.setItem('drink-pass-log-v1', JSON.stringify(log));
+    });
+    await page.goto('./');
+    await page.locator('#openInsights').click();
+    await page.evaluate(() => {
+      navigator.canShare = (d) => !!(d && d.files);
+      navigator.share = async (d) => { const f = d.files[0]; window.shared = { name: f.name, type: f.type, bytes: Array.from(new Uint8Array(await f.arrayBuffer())) }; };
+    });
+    await page.locator('#openReport').click();
+    await page.locator('[data-days="7"]').click();
+    await page.locator('#pdfBtn').click();
+    await expect.poll(() => page.evaluate(() => !!window.shared)).toBe(true);
+    const shared = await page.evaluate(() => window.shared);
+    expect(shared.name).toBe('排尿日记 2026-01-09 – 2026-01-15.pdf');
+    expect(shared.type).toBe('application/pdf');
+    expect(pages(Buffer.from(shared.bytes))).toBeGreaterThan(1);
   });
-  await page.locator('#pdfBtn').click();
-  expect(await page.evaluate(() => window.printed)).toEqual([{ title: 'Bladder and drink diary 2026-01-13 – 2026-01-15', printing: true }]);
-
-  await page.emulateMedia({ media: 'print' });
-  await expect(page.locator('#app')).toBeHidden();
-  await expect(page.locator('#pdfBtn')).toBeHidden();
-  await expect(page.locator('#reportTitle .rephead')).toHaveText('Bladder and drink diary');
-  await expect(page.locator('#reportTitle')).toContainText('Date of birth');
-  await expect(page.locator('#reportFoot')).toContainText('Created with Drink & Pass Journal on');
-  await expect(page.locator('#reportTable table.diary')).toContainText('Totals');
-  const pdf = await page.pdf({ preferCSSPageSize: true });
-  expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
-
-  await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
-  await expect(page).toHaveTitle('Drink & Pass Journal');
-  expect(await page.evaluate(() => document.body.classList.contains('printing'))).toBe(false);
 });

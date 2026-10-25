@@ -6,6 +6,7 @@ import {
   , fvSummary, drinkReminder, lastClockTime, clockFraction, clockSlot, dayOffsetOf, MAX_ML
 } from './core.js';
 import { toFhirBundle } from './fhir.js';
+import { reportPdf } from './pdf.js';
 import { encryptBackup, decryptBackup, isEncryptedBackup } from './crypto.js';
 import { t, tn, k, setLang, detectLang, isLang, currentLang, currentLocale, translatePage } from './i18n.js';
 
@@ -782,51 +783,107 @@ function fillAxis(ax) {
   ax.textContent = '';
   (settings.clock === '12' ? ['12a', '6a', '12p', '6p', '12a'] : ['00', '06', '12', '18', '24']).forEach(function (h) { ax.appendChild(el('span', '', h)); });
 }
-function buildDiaryChart(box, data) {
-  box.textContent = '';
+/** Everything the clinician summary shows, for the screen and for the PDF. */
+function reportModel(data) {
   var solidLane = settings.trackSolid || log.some(function (x) { return x.type === 'solid'; });
+  var legend = [{ key: 'drink', label: t('Drink') }, { key: 'pass', label: t('Pass') }];
+  if (solidLane) legend.push({ key: 'solid', label: t('Solid') });
+  legend.push({ key: 'night', label: t('Night') }, { key: 'ns', label: t('No size') });
+  var chart = {
+    solidLane: solidLane, legend: legend,
+    axis: settings.clock === '12' ? ['12a', '6a', '12p', '6p', '12a'] : ['00', '06', '12', '18', '24'],
+    days: data.map(function (d) {
+      return {
+        label: fmtDate(d.start, { weekday: 'short', day: 'numeric' }),
+        night: nightSegments(function (k) { return clockSlot(d.start, k, 15); }, 96),
+        dots: d.items.filter(function (x) { return !isSleep(x); }).map(function (x) { return { x: clockFraction(x.t), type: x.type, ns: !x.size && x.type !== 'solid' }; })
+      };
+    })
+  };
+  var f = fvSummary(data, isNight), v = function (ml) { return ml ? fmtVol(ml).replace(' ', '\u00a0') : '–'; };
+  var fvRow = function (label, r) { return [label, v(r.intakeMl), num(r.passes) + ' (' + num(r.nightPasses) + ')', v(r.outMl), v(r.nightMl), v(r.maxMl), v(r.meanMl)]; };
+  var fvNote = t('In is drinks, Out is passes. Night counts passes during your marked sleep or night hours. Volumes only include entries with a size; Average is per pass with a size.');
+  if (f.rows.length > 1) fvNote += ' ' + (f.daysKept < f.rows.length ? t('Per day averages over the {a} of {b} days with entries.', { a: f.daysKept, b: f.rows.length }) : t('Per day averages over the days with entries.'));
+  var fv = {
+    caption: t('Frequency and volume'),
+    head: [t('Day'), t('In'), t('Passes (night)'), t('Out'), t('Night out'), t('Largest'), t('Average')],
+    rows: f.rows.map(function (r) { return fvRow(fmtDate(r.start, { weekday: 'short', day: 'numeric', month: 'short' }), r); }),
+    total: f.rows.length > 1 && f.daysKept ? fvRow(t('Per day'), f.average) : null,
+    note: fvNote
+  };
+  var withNotes = data.some(function (d) { return d.items.some(function (x) { return x.note; }); });
+  var diary = {
+    withNotes: withNotes,
+    head: [t('Time'), t('Drink in'), t('Pass out')].concat(withNotes ? [t('Notes')] : []),
+    days: data.map(function (d) {
+      var tin = 0, tout = 0, np = 0, nn = 0, ns = 0;
+      var rows = d.items.map(function (x) {
+        var r = [{ text: fmtTime(x.t) }], note = withNotes ? [{ text: x.note || '' }] : [];
+        if (isSleep(x)) return r.concat([{ text: name(x.type), span: 2, muted: true }], note);
+        if (x.type === 'solid') {
+          ns++;
+          return r.concat([{ text: name('solid') + (x.bristol ? ', ' + t('Bristol {n}', { n: x.bristol }) : '') + (x.urgency && x.urgency !== 'none' ? ', ' + urgText(x.urgency) : ''), span: 2 }], note);
+        }
+        var txt = x.size ? fmtVol(x.size.ml) : t('logged');
+        if (x.type === 'drink') {
+          if (x.size) tin += x.size.ml;
+          return r.concat([{ text: txt + (x.kind ? ' (' + low(t(labelOf(KINDS, x.kind))) + ')' : '') }, { text: '' }], note);
+        }
+        if (x.size) tout += x.size.ml; np++; if (isNight(x.t)) nn++;
+        return r.concat([{ text: '' }, { text: nightly(txt, x.t) + (x.urgency && x.urgency !== 'none' ? ', ' + urgText(x.urgency) : '') }], note);
+      });
+      var total = [{ text: t('Totals') }, { text: tin ? fmtVol(tin) : '–' },
+        { text: tn(np, '{n} pass, {m} at night', '{n} passes, {m} at night', { m: nn }) + (tout ? ', ' + fmtVol(tout) : '') + (ns ? ', ' + tn(ns, '{n} solid', '{n} solids') : ''), span: withNotes ? 2 : 1 }];
+      return { title: fmtDate(d.start, { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' }), rows: rows, total: total };
+    })
+  };
+  return {
+    title: t('Bladder and drink diary'), range: reportRange(data), who: [t('Name'), t('Date of birth')],
+    note: t('Times are local. Volumes in {unit}. Sizes are estimates unless measured.', { unit: settings.unit === 'oz' ? 'fl oz' : 'ml' }),
+    chart: chart, fv: fv, diary: diary,
+    foot: t('Created with Drink & Pass Journal on {date}. It records what was entered and isn’t medical advice.', { date: fmtDate(Date.now(), { day: 'numeric', month: 'long', year: 'numeric' }) })
+  };
+}
+function buildDiaryChart(box, ch) {
+  box.textContent = '';
   var rowH = 28, wrap = el('div', 'plotwrap'), lab = el('div', 'daylabels'), mid = el('div'), plot = el('div', 'plot');
-  mid.style.cssText = 'flex:1;min-width:0'; lab.style.height = plot.style.height = (data.length * rowH) + 'px'; lab.style.width = '56px';
-  var cD = solidLane ? 6 : 8, cS = 14, cP = solidLane ? 22 : 20, base = solidLane ? 7 : 8;
-  data.forEach(function (d, i) {
-    var l = el('div', '', fmtDate(d.start, { weekday: 'short', day: 'numeric' })); l.style.cssText = 'height:' + rowH + 'px;line-height:' + rowH + 'px'; lab.appendChild(l);
+  mid.style.cssText = 'flex:1;min-width:0'; lab.style.height = plot.style.height = (ch.days.length * rowH) + 'px'; lab.style.width = '56px';
+  var lanes = ch.solidLane ? { drink: 6, solid: 14, pass: 22 } : { drink: 8, pass: 20 }, base = ch.solidLane ? 7 : 8;
+  ch.days.forEach(function (d, i) {
+    var l = el('div', '', d.label); l.style.cssText = 'height:' + rowH + 'px;line-height:' + rowH + 'px'; lab.appendChild(l);
     if (i > 0) { var ln = el('div', 'ln'); ln.style.top = (i * rowH) + 'px'; plot.appendChild(ln); }
-    nightSegments(function (k) { return clockSlot(d.start, k, 15); }, 96).forEach(function (sg) {
+    d.night.forEach(function (sg) {
       var nb = el('div', 'nb'); nb.style.left = (sg[0] / 96 * 100) + '%'; nb.style.width = ((sg[1] - sg[0]) / 96 * 100) + '%'; nb.style.top = (i * rowH) + 'px'; nb.style.height = rowH + 'px'; plot.appendChild(nb);
     });
-    d.items.forEach(function (x) {
-      if (isSleep(x)) return;
-      var dt = el('div', 'd ' + x.type + (!x.size && x.type !== 'solid' ? ' ns' : ''));
-      dt.style.width = dt.style.height = base + 'px'; dt.style.marginLeft = (-base / 2) + 'px'; dt.style.left = (clockFraction(x.t) * 100) + '%';
-      dt.style.top = (i * rowH + (x.type === 'drink' ? cD : x.type === 'solid' ? cS : cP) - base / 2) + 'px'; dt.style.pointerEvents = 'none'; plot.appendChild(dt);
+    d.dots.forEach(function (x) {
+      var dt = el('div', 'd ' + x.type + (x.ns ? ' ns' : ''));
+      dt.style.width = dt.style.height = base + 'px'; dt.style.marginLeft = (-base / 2) + 'px'; dt.style.left = (x.x * 100) + '%';
+      dt.style.top = (i * rowH + lanes[x.type] - base / 2) + 'px'; dt.style.pointerEvents = 'none'; plot.appendChild(dt);
     });
   });
   mid.appendChild(plot);
-  var ax = el('div', 'axis'); fillAxis(ax); mid.appendChild(ax);
+  var ax = el('div', 'axis'); ch.axis.forEach(function (h) { ax.appendChild(el('span', '', h)); }); mid.appendChild(ax);
   wrap.appendChild(lab); wrap.appendChild(mid); box.appendChild(wrap);
-  var lg = el('div', 'legend');
-  function li(cls, style, txt) { var sp = el('span'), i = el('i', cls); if (style) i.style.cssText = style; sp.appendChild(i); sp.appendChild(document.createTextNode(txt)); lg.appendChild(sp); }
-  li('', 'background:var(--drink)', t('Drink')); li('', 'background:var(--pass)', t('Pass')); if (solidLane) li('solidkey', '', t('Solid')); li('band', '', t('Night')); li('ring', '', t('No size'));
+  var lg = el('div', 'legend'), keys = { drink: ['', 'background:var(--drink)'], pass: ['', 'background:var(--pass)'], solid: ['solidkey', ''], night: ['band', ''], ns: ['ring', ''] };
+  ch.legend.forEach(function (it) { var sp = el('span'), i = el('i', keys[it.key][0]); if (keys[it.key][1]) i.style.cssText = keys[it.key][1]; sp.appendChild(i); sp.appendChild(document.createTextNode(it.label)); lg.appendChild(sp); });
   box.appendChild(lg);
 }
-function buildFvTable(box, data) {
+function buildFvTable(box, fv) {
   box.textContent = '';
-  var fv = fvSummary(data, isNight), tbl = el('table', 'rep fv');
-  tbl.appendChild(el('caption', '', t('Frequency and volume')));
+  var tbl = el('table', 'rep fv');
+  tbl.appendChild(el('caption', '', fv.caption));
   var head = tbl.createTHead().insertRow();
-  [t('Day'), t('In'), t('Passes (night)'), t('Out'), t('Night out'), t('Largest'), t('Average')].forEach(function (h) { var th = document.createElement('th'); th.scope = 'col'; th.textContent = h; head.appendChild(th); });
-  var tb = tbl.createTBody(), v = function (ml) { return ml ? fmtVol(ml).replace(' ', '\u00a0') : '–'; };
-  function row(label, r, cls) {
+  fv.head.forEach(function (h) { var th = document.createElement('th'); th.scope = 'col'; th.textContent = h; head.appendChild(th); });
+  var tb = tbl.createTBody();
+  function row(r, cls) {
     var tr = tb.insertRow(); if (cls) tr.className = cls;
-    var th = document.createElement('th'); th.scope = 'row'; th.textContent = label; tr.appendChild(th);
-    [v(r.intakeMl), num(r.passes) + ' (' + num(r.nightPasses) + ')', v(r.outMl), v(r.nightMl), v(r.maxMl), v(r.meanMl)].forEach(function (c) { tr.insertCell().textContent = c; });
+    var th = document.createElement('th'); th.scope = 'row'; th.textContent = r[0]; tr.appendChild(th);
+    r.slice(1).forEach(function (c) { tr.insertCell().textContent = c; });
   }
-  fv.rows.forEach(function (r) { row(fmtDate(r.start, { weekday: 'short', day: 'numeric', month: 'short' }), r); });
-  if (fv.rows.length > 1 && fv.daysKept) row(t('Per day'), fv.average, 'tot');
+  fv.rows.forEach(function (r) { row(r); });
+  if (fv.total) row(fv.total, 'tot');
   box.appendChild(tbl);
-  var note = t('In is drinks, Out is passes. Night counts passes during your marked sleep or night hours. Volumes only include entries with a size; Average is per pass with a size.');
-  if (fv.rows.length > 1) note += ' ' + (fv.daysKept < fv.rows.length ? t('Per day averages over the {a} of {b} days with entries.', { a: fv.daysKept, b: fv.rows.length }) : t('Per day averages over the days with entries.'));
-  box.appendChild(el('p', 'hint fvnote', note));
+  box.appendChild(el('p', 'hint fvnote', fv.note));
 }
 function reportRange(data) {
   var fd = function (ms) { return fmtDate(ms, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }); };
@@ -834,52 +891,20 @@ function reportRange(data) {
 }
 function renderReport() {
   each('[data-days]', function (c) { c.setAttribute('aria-pressed', +c.getAttribute('data-days') === reportDays ? 'true' : 'false'); });
-  var data = reportData(), box = $('reportTable'); box.textContent = '';
-  var ttl = $('reportTitle'); ttl.textContent = '';
-  ttl.appendChild(el('div', 'rephead', t('Bladder and drink diary')));
-  ttl.appendChild(el('div', 'repsub', reportRange(data)));
-  var who = el('div', 'repwho');
-  [t('Name'), t('Date of birth')].forEach(function (q) { var f = el('div', 'repfield'); f.appendChild(el('span', '', q)); f.appendChild(el('i')); who.appendChild(f); });
-  ttl.appendChild(who);
-  ttl.appendChild(el('div', 'hint', t('Times are local. Volumes in {unit}. Sizes are estimates unless measured.', { unit: settings.unit === 'oz' ? 'fl oz' : 'ml' })));
-  buildDiaryChart($('reportChart'), data);
-  buildFvTable($('reportFv'), data);
-  var withNotes = data.some(function (d) { return d.items.some(function (x) { return x.note; }); }), cols = withNotes ? 4 : 3;
+  var m = reportModel(reportData()), box = $('reportTable'); box.textContent = '';
+  buildDiaryChart($('reportChart'), m.chart);
+  buildFvTable($('reportFv'), m.fv);
   var tbl = el('table', 'rep diary'); tbl.style.marginTop = '12px';
   var head = tbl.createTHead().insertRow();
-  [t('Time'), t('Drink in'), t('Pass out')].concat(withNotes ? [t('Notes')] : []).forEach(function (hh) { var th = document.createElement('th'); th.scope = 'col'; th.textContent = hh; head.appendChild(th); });
-  data.forEach(function (d) {
+  m.diary.head.forEach(function (hh) { var th = document.createElement('th'); th.scope = 'col'; th.textContent = hh; head.appendChild(th); });
+  function cells(tr, list) { list.forEach(function (x) { var c = tr.insertCell(); c.textContent = x.text; if (x.span > 1) c.colSpan = x.span; if (x.muted) c.className = 'sleep'; }); }
+  m.diary.days.forEach(function (d) {
     var tb = tbl.createTBody(), hr = tb.insertRow(); hr.className = 'dayhead';
-    var c = hr.insertCell(); c.colSpan = cols;
-    c.textContent = fmtDate(d.start, { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
-    var tin = 0, tout = 0, np = 0, nn = 0, ns = 0;
-    d.items.forEach(function (x) {
-      var r = tb.insertRow();
-      r.insertCell().textContent = fmtTime(x.t);
-      var noteCell = function () { if (withNotes) r.insertCell().textContent = x.note || ''; };
-      if (isSleep(x)) { var sc = r.insertCell(); sc.colSpan = 2; sc.className = 'sleep'; sc.textContent = name(x.type); noteCell(); return; }
-      if (x.type === 'solid') {
-        var sd = r.insertCell(); sd.colSpan = 2; ns++;
-        sd.textContent = name('solid') + (x.bristol ? ', ' + t('Bristol {n}', { n: x.bristol }) : '') + (x.urgency && x.urgency !== 'none' ? ', ' + urgText(x.urgency) : '');
-        noteCell(); return;
-      }
-      var a = r.insertCell(), b = r.insertCell();
-      var txt = x.size ? fmtVol(x.size.ml) : t('logged');
-      if (x.type === 'drink') { a.textContent = txt + (x.kind ? ' (' + low(t(labelOf(KINDS, x.kind))) + ')' : ''); if (x.size) tin += x.size.ml; }
-      else {
-        b.textContent = nightly(txt, x.t) + (x.urgency && x.urgency !== 'none' ? ', ' + urgText(x.urgency) : '');
-        if (x.size) tout += x.size.ml; np++; if (isNight(x.t)) nn++;
-      }
-      noteCell();
-    });
-    var tr = tb.insertRow(); tr.className = 'tot';
-    tr.insertCell().textContent = t('Totals');
-    tr.insertCell().textContent = tin ? fmtVol(tin) : '–';
-    var tc = tr.insertCell(); if (withNotes) tc.colSpan = 2;
-    tc.textContent = tn(np, '{n} pass, {m} at night', '{n} passes, {m} at night', { m: nn }) + (tout ? ', ' + fmtVol(tout) : '') + (ns ? ', ' + tn(ns, '{n} solid', '{n} solids') : '');
+    var c = hr.insertCell(); c.colSpan = m.diary.head.length; c.textContent = d.title;
+    d.rows.forEach(function (r) { cells(tb.insertRow(), r); });
+    var tr = tb.insertRow(); tr.className = 'tot'; cells(tr, d.total);
   });
   box.appendChild(tbl);
-  $('reportFoot').textContent = t('Created with Drink & Pass Journal on {date}. It records what was entered and isn’t medical advice.', { date: fmtDate(Date.now(), { day: 'numeric', month: 'long', year: 'numeric' }) });
 }
 function csv() {
   var items = []; reportData().forEach(function (d) { items = items.concat(d.items); });
@@ -1042,17 +1067,11 @@ each('[data-range]', function (b) { b.addEventListener('click', function () { ra
 each('[data-days]', function (b) { b.addEventListener('click', function () { reportDays = +b.getAttribute('data-days'); renderReport(); }); });
 $('copyCsv').addEventListener('click', function () { copyText(csv(), $('reportMsg'), t('CSV copied')); });
 $('dlCsv').addEventListener('click', function () { saveFile('drink-pass-' + stamp() + '.csv', csv(), $('reportMsg')); });
-// The browser's print window saves the PDF, so every script (including Chinese) uses the system fonts.
-var titleBeforePrint = null;
-function endPrint() { document.body.classList.remove('printing'); if (titleBeforePrint !== null) { document.title = titleBeforePrint; titleBeforePrint = null; } }
-window.addEventListener('afterprint', endPrint);
 $('pdfBtn').addEventListener('click', function () {
-  var data = reportData();
-  titleBeforePrint = document.title;
-  // Browsers suggest the page title as the PDF's file name.
-  document.title = t('Bladder and drink diary') + ' ' + isoDate(data[0].start) + (data.length > 1 ? ' – ' + isoDate(data[data.length - 1].start) : '');
-  document.body.classList.add('printing');
-  try { window.print(); } catch (e) { endPrint(); $('reportMsg').textContent = t('Printing isn’t available here. Use Download or Copy as CSV instead.'); }
+  var data = reportData(), m = reportModel(data), bytes;
+  try { bytes = reportPdf(m); } catch (e) { $('reportMsg').textContent = t('Couldn’t make the PDF. Use Download CSV instead.'); return; }
+  var dates = isoDate(data[0].start) + (data.length > 1 ? ' – ' + isoDate(data[data.length - 1].start) : '');
+  saveFile((m.title + ' ' + dates).replace(/[\\/:*?"<>|]/g, '-') + '.pdf', bytes, $('reportMsg'));
 });
 each('[data-unit]', function (b) {
   b.addEventListener('click', function () { settings.unit = b.getAttribute('data-unit'); save(); syncSettings(); if (sheetId) closeSheet(); render(); });
@@ -1343,7 +1362,7 @@ $('remindNotify').addEventListener('click', function () {
 });
 
 function downloadFile(opts) {
-  var name = opts.filename, type = /\.json$/i.test(name) ? 'application/json' : /\.csv$/i.test(name) ? 'text/csv' : 'text/plain';
+  var name = opts.filename, type = /\.json$/i.test(name) ? 'application/json' : /\.csv$/i.test(name) ? 'text/csv' : /\.pdf$/i.test(name) ? 'application/pdf' : 'text/plain';
   var blob = new Blob([opts.data], { type: type });
   function anchor() {
     var url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click();
