@@ -88,7 +88,7 @@ function fmtDate(ms, opts) { return new Date(ms).toLocaleDateString(currentLocal
 function name(type) { return t(NAMES[type]); }
 // German capitalises nouns, so labels are only lower-cased mid-sentence in the other languages.
 function low(s) { return currentLang() === 'de' ? s : s.toLowerCase(); }
-function nightTag(ms) { return isNight(ms) ? ' ' + t('(night)') : ''; }
+function nightly(what, ms) { return isNight(ms) ? t('{what} (night)', { what: what }) : what; }
 // Every change to `log` goes through save() or loadLog(), which clear these caches.
 var sortedCache = null, gapsCache = null;
 function touch() { sortedCache = null; gapsCache = null; }
@@ -235,7 +235,8 @@ function openSheet(entry, keepTime) {
   hideBar();
   sheetId = entry.id;
   var sl = isSleep(entry), solid = entry.type === 'solid', label = name(entry.type), g = (gaps()[entry.id]) || {};
-  $('sheetTitle').textContent = t('{what} at {time}', { what: label, time: fmtTime(entry.t) }) + (entry.type === 'pass' ? nightTag(entry.t) : '');
+  var tv = { what: label, time: fmtTime(entry.t) };
+  $('sheetTitle').textContent = entry.type === 'pass' && isNight(entry.t) ? t('{what} at {time} (night)', tv) : t('{what} at {time}', tv);
   var info = [];
   if (sl) { var sp = entry.type === 'wake' ? sleptText(entry) : ''; if (sp) info.push(sp); }
   else {
@@ -423,7 +424,7 @@ function buildRow(x, info, withDay) {
   else { var dot = document.createElement('span'); dot.className = 'dot ' + x.type + (x.size || x.type === 'solid' ? '' : ' ns'); mk.appendChild(dot); }
   var tm = document.createElement('span'); tm.className = 'time'; tm.textContent = withDay ? fmtWhen(x.t) : fmtTime(x.t);
   var wh = document.createElement('span'); wh.className = 'what' + (sl ? ' soft' : '');
-  wh.appendChild(document.createTextNode(name(x.type) + (x.type === 'pass' ? nightTag(x.t) : '')));
+  wh.appendChild(document.createTextNode(x.type === 'pass' ? nightly(name(x.type), x.t) : name(x.type)));
   function tag(txt) { var sp = document.createElement('span'); sp.className = 'tag'; sp.textContent = txt; wh.appendChild(sp); }
   if (x.type === 'drink' && x.kind) tag(t(labelOf(KINDS, x.kind)));
   if ((x.type === 'pass' || x.type === 'solid') && x.urgency && x.urgency !== 'none') tag(t(labelOf(URG, x.urgency)));
@@ -582,7 +583,7 @@ function renderInsights() {
   if (settings.compare) {
     var nowT = Date.now(), curA = rangeDays === 1 ? nowT - DAY : dayRange(-(rangeDays - 1))[0];
     var prevA = rangeDays === 1 ? nowT - 2 * DAY : dayRange(-(2 * rangeDays - 1))[0], prevB = rangeDays === 1 ? nowT - DAY : curA;
-    cmp = { cur: periodStats(curA, nowT + 1), prev: periodStats(prevA, prevB), label: rangeDays === 1 ? t('vs previous 24 h') : t('vs previous {n} days', { n: rangeDays }) };
+    cmp = { cur: periodStats(curA, nowT + 1), prev: periodStats(prevA, prevB), vs: function (d) { return rangeDays === 1 ? t('{d} vs previous 24 h', { d: d }) : t('{d} vs previous {n} days', { d: d, n: rangeDays }); } };
   }
   function section(title, color, note) {
     var h = el('div', 'insh'), h3 = el('h3'), dot = el('i');
@@ -637,7 +638,10 @@ function renderInsights() {
   }
   function avgOf(ml, n) { return multi ? (n ? ml / n : 0) : ml; }
   if (cmp) {
-    if (cmp.prev.outN || cmp.prev.inN) io.appendChild(el('div', 'sub', t('In') + ' ' + signed(avgOf(cmp.cur.inMl, cmp.cur.inN) - avgOf(cmp.prev.inMl, cmp.prev.inN), fmtVol) + ' · ' + t('Out') + ' ' + signed(avgOf(cmp.cur.outMl, cmp.cur.outN) - avgOf(cmp.prev.outMl, cmp.prev.outN), fmtVol) + ' ' + cmp.label));
+    if (cmp.prev.outN || cmp.prev.inN) {
+      var dv = { a: signed(avgOf(cmp.cur.inMl, cmp.cur.inN) - avgOf(cmp.prev.inMl, cmp.prev.inN), fmtVol), b: signed(avgOf(cmp.cur.outMl, cmp.cur.outN) - avgOf(cmp.prev.outMl, cmp.prev.outN), fmtVol), n: rangeDays };
+      io.appendChild(el('div', 'sub', rangeDays === 1 ? t('In {a} · Out {b} vs previous 24 h', dv) : t('In {a} · Out {b} vs previous {n} days', dv)));
+    }
     else io.appendChild(el('div', 'sub', t('No earlier data to compare.')));
   }
   tiles.appendChild(io);
@@ -655,7 +659,7 @@ function renderInsights() {
     var ml = el('i'); ml.style.bottom = (median(gp) / gmax * 100) + '%'; sp.appendChild(ml); gt.appendChild(sp);
     gt.appendChild(el('div', 'sub', t('Longest {d}', { d: fmtDur(Math.max.apply(null, gp)) })));
   }
-  if (cmp && cmp.cur.med !== null && cmp.prev.med !== null) gt.appendChild(el('div', 'sub', signed(cmp.cur.med - cmp.prev.med, fmtDur) + ' ' + cmp.label));
+  if (cmp && cmp.cur.med !== null && cmp.prev.med !== null) gt.appendChild(el('div', 'sub', cmp.vs(signed(cmp.cur.med - cmp.prev.med, fmtDur))));
   tiles.appendChild(gt);
 
   var nt = tile(multi ? t('Night passes, per night') : t('Night passes'));
@@ -670,7 +674,7 @@ function renderInsights() {
     var nb = el('div', 'nbar'), nf = el('div'); nf.style.width = (nightPasses / passes.length * 100) + '%'; nb.appendChild(nf); nt.appendChild(nb);
     nt.appendChild(el('div', 'sub', t('{a} of {b} passes at night', { a: nightPasses, b: passes.length })));
   }
-  if (cmp && cmp.prev.passes.length) nt.appendChild(el('div', 'sub', signed(cmp.cur.night - cmp.prev.night, String) + ' ' + cmp.label));
+  if (cmp && cmp.prev.passes.length) nt.appendChild(el('div', 'sub', cmp.vs(signed(cmp.cur.night - cmp.prev.night, String))));
   tiles.appendChild(nt);
 
   var rangePasses = rangeItems.filter(function (x) { return x.type === 'pass'; });
@@ -761,7 +765,7 @@ function renderInsights() {
       var ends = el('div', 'bends'); ends.appendChild(el('span', '', t('hard'))); ends.appendChild(el('span', '', t('liquid'))); bw.appendChild(ends);
       if (bc[0]) bw.appendChild(el('div', 'sub', t('Not recorded: {n}', { n: bc[0] })));
     }
-    if (cmp && cmp.prev.solids) bw.appendChild(el('div', 'sub', signed(cmp.cur.solids - cmp.prev.solids, String) + ' ' + cmp.label));
+    if (cmp && cmp.prev.solids) bw.appendChild(el('div', 'sub', cmp.vs(signed(cmp.cur.solids - cmp.prev.solids, String))));
     tiles.appendChild(bw);
   }
 }
@@ -863,7 +867,7 @@ function renderReport() {
       var txt = x.size ? fmtVol(x.size.ml) : t('logged');
       if (x.type === 'drink') { a.textContent = txt + (x.kind ? ' (' + low(t(labelOf(KINDS, x.kind))) + ')' : ''); if (x.size) tin += x.size.ml; }
       else {
-        b.textContent = txt + nightTag(x.t) + (x.urgency && x.urgency !== 'none' ? ', ' + urgText(x.urgency) : '');
+        b.textContent = nightly(txt, x.t) + (x.urgency && x.urgency !== 'none' ? ', ' + urgText(x.urgency) : '');
         if (x.size) tout += x.size.ml; np++; if (isNight(x.t)) nn++;
       }
       noteCell();
