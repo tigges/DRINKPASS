@@ -1,14 +1,14 @@
 /* Drink & Pass Journal service worker: keeps the app working offline. Entries are never touched here. */
 // Bump VERSION with every release (scripts/check-release.mjs enforces it matches package.json).
-var VERSION = '1.4.3';
+var VERSION = '1.5.0';
 // Written by `npm run stamp`. The CDN in front of the site can briefly serve some files from the previous
 // release, so the install checks every file against these hashes and fails rather than cache a mix.
-var BUILD = '22e6f7cb';
+var BUILD = 'e5ec68de';
 var FILES = {
   'index.html': '26e65fb27443e08c',
   'manifest.webmanifest': 'ca81ed83a9638314',
-  'css/app.css': '5cc5ac1b9ab784fc',
-  'js/app.js': '24959af7f5ed2a50',
+  'css/app.css': '910d9262b5086720',
+  'js/app.js': '207c5ef7187e5a2e',
   'js/core.js': '50a5ab1b64220f24',
   'js/crypto.js': '57422adbc73afa6c',
   'js/fhir.js': '56dfb3c1fd3b4931',
