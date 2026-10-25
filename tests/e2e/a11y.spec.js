@@ -29,6 +29,28 @@ for (const scheme of ['light', 'dark']) {
   });
 }
 
+for (const scheme of ['light', 'dark']) {
+  test(`Progress and the All range pass axe in ${scheme} mode`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.clock.setFixedTime(new Date('2026-03-20T20:00:00Z'));
+    await page.addInitScript(() => {
+      const log = [], H = 3600e3, first = Date.parse('2026-03-01T00:00:00Z');
+      for (let d = 0; d < 20; d++) {
+        const day = first + d * 24 * H;
+        for (let h = 2; h < 20; h += 3) log.push({ id: `p${d}-${h}`, type: 'pass', t: day + h * H, size: { label: 'exact', ml: 200 + d * 5 }, urgency: h % 2 ? 'strong' : 'mild' });
+        log.push({ id: `d${d}`, type: 'drink', t: day + 9 * H, size: { label: 'medium', ml: 250 } });
+      }
+      localStorage.setItem('drink-pass-log-v1', JSON.stringify(log));
+    });
+    await page.goto('./');
+    await page.locator('#openInsights').click();
+    await page.locator('[data-range="0"]').click();
+    await page.locator('.prow').first().click();
+    await expect(page.locator('.pdet svg')).toBeVisible();
+    await axe(page, 'progress');
+  });
+}
+
 test('big buttons say what they do and when it last happened', async ({ page }) => {
   await page.goto('./');
   await expect(page.getByRole('button', { name: 'Log a Drink' })).toHaveAccessibleDescription('Not yet');

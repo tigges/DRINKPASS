@@ -3,7 +3,7 @@ import {
   isSleep, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime as fmtTimeIn, fmtHour, fmtDur as fmtDurIn, agoText as agoTextIn, toLocalInput,
   sortEntries, isoDate, between, sleepModel, sanitizeSettings, migrateLog, DEFAULT_SETTINGS, SCHEMA, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
   fmtVol as fmtVolIn
-  , fvSummary, drinkReminder, lastClockTime, clockFraction, clockSlot, dayOffsetOf, MAX_ML
+  , fvSummary, drinkReminder, lastClockTime, clockFraction, clockSlot, dayOffsetOf, MAX_ML, dailySeries, rolling, trendEnds
 } from './core.js';
 import { toFhirBundle } from './fhir.js';
 import { reportPdf } from './pdf.js';
@@ -45,7 +45,7 @@ function loadSettings() {
   var r = readJson(SKEY);
   if (r.bad) quarantine(SKEY, r.raw);
   settings = sanitizeSettings(r.value, DEFAULT_SETTINGS);
-  rangeDays = settings.range; reportDays = rangeDays > 7 ? 7 : rangeDays;
+  rangeDays = settings.range; reportDays = !rangeDays || rangeDays > 7 ? 7 : rangeDays;
 }
 function load() {
   try { loadLog(); } catch (e) { log = []; }
@@ -489,11 +489,95 @@ function el(tag, cls, txt) { var e = document.createElement(tag); if (cls) e.cla
 function signed(n, f) { return n === 0 ? t('same') : (n > 0 ? '+' : '−') + f(Math.abs(n)); }
 function periodStats(a, b) { return periodStatsOf(sorted(), a, b, isNight); }
 function tile(label, wide) { var t = el('div', 'tile' + (wide ? ' wide' : '')); t.appendChild(el('div', 'l', label)); return t; }
+// Progress: how each measure moved from the first logged week to the last. Changes are named, never judged.
+var progressOpen = null;
+function pct(v) { return new Intl.NumberFormat(currentLocale(), { style: 'percent', maximumFractionDigits: 0 }).format(v / 100); }
+var TRENDS = [
+  { key: 'gap', label: k('Typical gap'), cls: 'c-pass', fmt: function (v) { return fmtDur(v); }, eps: 5 * 60000, up: k('gap|longer'), down: k('gap|shorter') },
+  { key: 'size', label: k('Average size'), cls: 'c-pass', fmt: function (v) { return fmtVol(v); }, eps: 10, up: k('size|larger'), down: k('size|smaller') },
+  { key: 'night', label: k('Night passes, per night'), cls: 'c-ink', fmt: function (v) { return num(v); }, eps: 0.25, zero: true, up: k('night|more'), down: k('night|fewer') },
+  { key: 'urgent', label: k('Strong or couldn’t wait'), cls: 'c-urg', fmt: pct, eps: 5, zero: true, up: k('urgency|more often'), down: k('urgency|less often') },
+  { key: 'intake', label: k('Drinks a day'), cls: 'c-drink', fmt: function (v) { return fmtVol(v); }, eps: 100, up: k('drinks|more'), down: k('drinks|less') }
+];
+function svgEl(tag, attrs, parent) {
+  var e = document.createElementNS(NS, tag);
+  Object.keys(attrs).forEach(function (a) { e.setAttribute(a, attrs[a]); });
+  if (parent) parent.appendChild(e);
+  return e;
+}
+/** Daily dots and the 7-day median line; `big` adds the middle-half band, value lines and dates. */
+function trendSvg(series, m, w, h, big) {
+  var roll = rolling(series, m.key), n = series.length, padX = big ? 6 : 3, top = big ? 14 : 3, bottom = big ? 18 : 3;
+  var vals = [];
+  series.forEach(function (r, i) { if (r[m.key] !== null) vals.push(r[m.key]); if (big && roll[i]) vals.push(roll[i].lo, roll[i].hi); });
+  var lo = m.zero ? 0 : Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  if (hi - lo < m.eps * 2) { hi += m.eps; lo = m.zero ? 0 : lo - m.eps; }
+  var x = function (i) { return n > 1 ? padX + i / (n - 1) * (w - 2 * padX) : w / 2; }, y = function (v) { return top + (1 - (v - lo) / (hi - lo)) * (h - top - bottom); };
+  var svg = svgEl('svg', { viewBox: '0 0 ' + w + ' ' + h, class: 'ptr ' + m.cls + (big ? ' big' : ''), 'aria-hidden': 'true' }), dx = n > 1 ? (w - 2 * padX) / (n - 1) : 6;
+  series.forEach(function (r, i) { if (!r.logged) svgEl('rect', { class: 'pun', x: (x(i) - dx / 2).toFixed(1), y: top, width: Math.max(1, dx).toFixed(1), height: h - top - bottom }, svg); });
+  if (big) [lo, (lo + hi) / 2, hi].forEach(function (v) { svgEl('line', { class: 'pgrid', x1: padX, x2: w - padX, y1: y(v).toFixed(1), y2: y(v).toFixed(1) }, svg); });
+  // The line and band break after three days in a row without a value, so a gap in the diary isn't bridged.
+  var segs = [], cur = null, miss = 0;
+  roll.forEach(function (p, i) {
+    if (!p) { miss++; return; }
+    if (!cur || miss >= 3) { cur = []; segs.push(cur); }
+    miss = 0; cur.push([x(i), p]);
+  });
+  segs.forEach(function (sg) {
+    if (big && sg.length > 1) svgEl('path', { class: 'pb', d: 'M' + sg.map(function (q) { return q[0].toFixed(1) + ' ' + y(q[1].hi).toFixed(1); }).join(' L') + ' L' + sg.slice().reverse().map(function (q) { return q[0].toFixed(1) + ' ' + y(q[1].lo).toFixed(1); }).join(' L') + ' Z' }, svg);
+  });
+  series.forEach(function (r, i) { if (r[m.key] !== null) svgEl('circle', { class: 'pd', cx: x(i).toFixed(1), cy: y(r[m.key]).toFixed(1), r: big ? 2.4 : 1.8 }, svg); });
+  segs.forEach(function (sg) { svgEl('path', { class: 'pl', d: 'M' + sg.map(function (q) { return q[0].toFixed(1) + ' ' + y(q[1].med).toFixed(1); }).join(' L') }, svg); });
+  if (big) {
+    [lo, (lo + hi) / 2, hi].forEach(function (v) { svgEl('text', { class: 'pax', x: padX, y: (y(v) - 3).toFixed(1) }, svg).textContent = m.fmt(v); });
+    [0, 1, 2, 3].forEach(function (j) {
+      var i = Math.round(j * (n - 1) / 3);
+      svgEl('text', { class: 'pax', x: x(i).toFixed(1), y: h - 4, 'text-anchor': j === 0 ? 'start' : j === 3 ? 'end' : 'middle' }, svg).textContent = fmtDate(series[i].start, { day: 'numeric', month: 'short' });
+    });
+  }
+  return svg;
+}
+function renderProgress(tiles, section, series) {
+  var logged = series.filter(function (r) { return r.logged; }).length, rows = [];
+  TRENDS.forEach(function (m) { var e = trendEnds(series, m.key); if (e) rows.push({ m: m, e: e }); });
+  var box = el('div', 'tile wide prog');
+  if (logged < 10) {
+    section(t('Progress'), 'var(--ink)', '');
+    box.appendChild(el('div', 'sub', tn(10 - logged, 'Log on {n} more day to see how things change.', 'Log on {n} more days to see how things change.')));
+    tiles.appendChild(box); return;
+  }
+  if (!rows.length) return;
+  section(t('Progress'), 'var(--ink)', t('first vs last {n} logged days', { n: Math.max.apply(null, rows.map(function (r) { return r.e.n; })) }));
+  rows.forEach(function (row) {
+    var m = row.m, e = row.e, open = progressOpen === m.key, id = 'pdet-' + m.key;
+    var word = Math.abs(e.last - e.first) < m.eps ? t('steady') : t(e.last > e.first ? m.up : m.down);
+    var b = el('button', 'prow'); b.type = 'button'; b.setAttribute('aria-expanded', open ? 'true' : 'false'); b.setAttribute('aria-controls', id);
+    b.appendChild(el('span', 'plab', t(m.label))); b.appendChild(el('span', 'pword', word));
+    var val = el('span', 'pval'); val.appendChild(el('span', '', m.fmt(e.first))); val.appendChild(document.createTextNode(' → ')); val.appendChild(el('span', '', m.fmt(e.last)));
+    b.appendChild(val); b.appendChild(trendSvg(series, m, 104, 34, false));
+    var det = el('div', 'pdet'); det.id = id; det.hidden = !open;
+    if (open) {
+      var big = trendSvg(series, m, 320, 140, true); big.setAttribute('role', 'img'); big.removeAttribute('aria-hidden');
+      big.setAttribute('aria-label', t('{what} each day, with a 7-day median line', { what: t(m.label) }));
+      det.appendChild(big);
+      var lg = el('div', 'legend plg');
+      [['pdk', t('Each day')], ['plk', t('7-day median')], ['pbk', t('Middle half of days')], ['puk', t('Not logged')]].forEach(function (q) { var sp = el('span'); sp.appendChild(el('i', q[0] + ' ' + m.cls)); sp.appendChild(document.createTextNode(q[1])); lg.appendChild(sp); });
+      det.appendChild(lg);
+    }
+    b.addEventListener('click', function () { progressOpen = open ? null : m.key; renderInsights(); var again = document.querySelector('[aria-controls="' + id + '"]'); if (again) again.focus(); });
+    box.appendChild(b); box.appendChild(det);
+  });
+  box.appendChild(el('div', 'sub', t('Dots: each logged day. Line: the median of the last 7 days. Shaded: not logged.')));
+  tiles.appendChild(box);
+}
 function renderInsights() {
   each('[data-range]', function (c) { c.setAttribute('aria-pressed', +c.getAttribute('data-range') === rangeDays ? 'true' : 'false'); });
   var plot = $('plot'), lab = $('dayLabels'), tl = $('tlLab'), s = sorted();
   plot.textContent = ''; lab.textContent = ''; tl.textContent = '';
-  var amount = settings.dotScale === 'amount' && rangeDays <= 7, anyNoSize = false;
+  // All runs from the first entry, up to a year. The day-by-day charts don't fit that many days, so they're left out.
+  var all = rangeDays === 0, span = all ? Math.min(366, Math.max(1, 1 - (s.length ? dayOffsetOf(s[0].t) : 0))) : rangeDays;
+  $('hero').hidden = all;
+  var amount = settings.dotScale === 'amount' && rangeDays && rangeDays <= 7, anyNoSize = false, seriesDays = [];
   var solidLane = settings.trackSolid || s.some(function (x) { return x.type === 'solid'; });
   var rangeItems = [], passes = [], passFlags = [], vols = [], nightPasses = 0, withData = 0, inMl = 0, inC = 0, outMl = 0, outC = 0, dayIn = [], dayOut = [], dayPasses = [];
   function mk(x, cls, left, cy, base) {
@@ -538,10 +622,19 @@ function renderInsights() {
     var cP = solidLane ? (rangeDays <= 7 ? 22 : rangeDays <= 14 ? 15 : 10) : (rangeDays <= 7 ? 20 : rangeDays <= 14 ? 13 : 8.5);
     plot.style.height = (rangeDays * rowH) + 'px'; lab.style.height = (rangeDays * rowH) + 'px';
     var firstStart = null;
-    for (var i = 0; i < rangeDays; i++) {
+    for (var i = 0; i < span; i++) {
       (function (i) {
-        var off = -(rangeDays - 1 - i), r = dayRange(off), ds = r[0];
+        var off = -(span - 1 - i), r = dayRange(off), ds = r[0];
         if (i === 0) firstStart = ds;
+        var items = between(s, r[0], r[1]).filter(function (x) { return !isSleep(x); });
+        seriesDays.push({ start: ds, items: items });
+        if (items.length) withData++;
+        Array.prototype.push.apply(rangeItems, items);
+        var dp = items.filter(function (x) { return x.type === 'pass'; });
+        var si = sum(items.filter(function (x) { return x.type === 'drink'; })), so = sum(dp);
+        dayIn.push(si[0]); dayOut.push(so[0]); if (si[1]) inC++; if (so[1]) outC++;
+        dayPasses.push({ start: ds, n: dp.length, night: dp.filter(function (x) { return isNight(x.t); }).length, solid: items.some(function (x) { return x.type === 'solid'; }) });
+        if (all) return;
         var l = document.createElement('div'); l.style.height = rowH + 'px'; l.style.lineHeight = rowH + 'px';
         var showLab = rangeDays <= 14 || i % 5 === 0 || off === 0;
         l.textContent = !showLab ? '' : off === 0 ? t('Today') : rangeDays <= 7 ? fmtDate(ds, { weekday: 'short' }) : fmtDate(ds, { day: 'numeric', month: 'short' });
@@ -552,14 +645,7 @@ function renderInsights() {
           d.style.left = (sg[0] / 96 * 100) + '%'; d.style.width = ((sg[1] - sg[0]) / 96 * 100) + '%';
           d.style.top = (i * rowH) + 'px'; d.style.height = rowH + 'px'; plot.appendChild(d);
         });
-        var items = between(s, r[0], r[1]).filter(function (x) { return !isSleep(x); });
-        if (items.length) withData++;
-        Array.prototype.push.apply(rangeItems, items);
         items.forEach(function (x) { mk(x, x.type, clockFraction(x.t) * 100, i * rowH + (x.type === 'drink' ? cD : x.type === 'solid' ? cS : cP), base); });
-        var dp = items.filter(function (x) { return x.type === 'pass'; });
-        var si = sum(items.filter(function (x) { return x.type === 'drink'; })), so = sum(dp);
-        dayIn.push(si[0]); dayOut.push(so[0]); if (si[1]) inC++; if (so[1]) outC++;
-        dayPasses.push({ start: ds, n: dp.length, night: dp.filter(function (x) { return isNight(x.t); }).length, solid: items.some(function (x) { return x.type === 'solid'; }) });
       })(i);
     }
     between(s, firstStart, Infinity).forEach(function (x) {
@@ -577,11 +663,11 @@ function renderInsights() {
   if (amount) { var sp2 = el('span'); [6, 9, 12].forEach(function (z) { var i = el('i'); i.style.cssText = 'background:var(--muted);width:' + z + 'px;height:' + z + 'px'; sp2.appendChild(i); }); sp2.appendChild(document.createTextNode(t('Bigger dot, bigger amount'))); lg.appendChild(sp2); }
 
   // Cards below the chart: drinks and output, passes, bowel.
-  var tiles = $('tiles'); tiles.textContent = ''; var multi = rangeDays > 1;
+  var tiles = $('tiles'); tiles.textContent = ''; var multi = all || rangeDays > 1;
   var gp = [];
   for (var k = 1; k < passes.length; k++) if (passes[k] - passes[k - 1] < DAY) gp.push(passes[k] - passes[k - 1]);
   var cmp = null;
-  if (settings.compare) {
+  if (settings.compare && !all) {
     var nowT = Date.now(), curA = rangeDays === 1 ? nowT - DAY : dayRange(-(rangeDays - 1))[0];
     var prevA = rangeDays === 1 ? nowT - 2 * DAY : dayRange(-(2 * rangeDays - 1))[0], prevB = rangeDays === 1 ? nowT - DAY : curA;
     cmp = { cur: periodStats(curA, nowT + 1), prev: periodStats(prevA, prevB), vs: function (d) { return rangeDays === 1 ? t('{d} vs previous 24 h', { d: d }) : t('{d} vs previous {n} days', { d: d, n: rangeDays }); } };
@@ -605,6 +691,8 @@ function renderInsights() {
     });
     box.appendChild(blk);
   }
+
+  if (all || rangeDays >= 14) renderProgress(tiles, section, dailySeries(seriesDays, isNight));
 
   // Drinks and output. Per day averages over the days that have sizes, as in the clinician summary.
   section(t('Drinks and output'), 'var(--drink)', multi ? t('per day') : t('last 24 h'));
@@ -649,7 +737,7 @@ function renderInsights() {
 
   // Passes
   var passNote = !passes.length ? '' : multi
-    ? t('{n} in {d} days', { n: passes.length, d: rangeDays }) + ' · ' + t('{n} a day', { n: num(passes.length / Math.max(1, withData)) })
+    ? t('{n} in {d} days', { n: passes.length, d: span }) + ' · ' + t('{n} a day', { n: num(passes.length / Math.max(1, withData)) })
     : t('{n} in 24 h', { n: passes.length });
   section(t('Passes'), 'var(--pass)', passNote);
   var gt = tile(t('Typical gap'));
@@ -679,7 +767,7 @@ function renderInsights() {
   tiles.appendChild(nt);
 
   var rangePasses = rangeItems.filter(function (x) { return x.type === 'pass'; });
-  if (multi && rangePasses.length) {
+  if (multi && !all && rangePasses.length) {
     var pd = tile(t('Passes each day'), true), key = el('span', 'pdkey');
     [['var(--pass)', t('Day')], ['var(--ink)', t('Night')]].forEach(function (q) { var sw = el('i'); sw.style.background = q[0]; key.appendChild(sw); key.appendChild(document.createTextNode(q[1])); });
     pd.firstChild.appendChild(key);
@@ -731,11 +819,11 @@ function renderInsights() {
     var bw = el('div', 'tile wide');
     var top = el('div', 'bowtop'); top.appendChild(el('span', 'n', String(solidsR.length)));
     var bits = [];
-    if (multi) bits.push(t('on {a} of {b} days', { a: dayPasses.filter(function (d) { return d.solid; }).length, b: rangeDays }));
+    if (multi) bits.push(t('on {a} of {b} days', { a: dayPasses.filter(function (d) { return d.solid; }).length, b: span }));
     if (solidsR.length > 1) { var sgp = []; for (var q = 1; q < solidsR.length; q++) sgp.push(solidsR[q].t - solidsR[q - 1].t); bits.push(t('Typical gap {d}', { d: fmtDur(median(sgp)) })); }
     if (bits.length) top.appendChild(el('span', 'sub', bits.join(' · ')));
     bw.appendChild(top);
-    if (multi) {
+    if (multi && !all) {
       var wk = el('div', 'bdays' + (rangeDays > 7 ? ' many' : ''));
       wk.setAttribute('role', 'img');
       wk.setAttribute('aria-label', t('on {a} of {b} days', { a: dayPasses.filter(function (d) { return d.solid; }).length, b: rangeDays }));
@@ -1063,7 +1151,7 @@ document.addEventListener('keydown', function (e) {
     if (top === 'sheet') closeSheet(); else hideOverlay(top);
   }
 });
-each('[data-range]', function (b) { b.addEventListener('click', function () { rangeDays = +b.getAttribute('data-range'); settings.range = rangeDays; save(); reportDays = rangeDays > 7 ? 7 : rangeDays; renderInsights(); }); });
+each('[data-range]', function (b) { b.addEventListener('click', function () { rangeDays = +b.getAttribute('data-range'); settings.range = rangeDays; save(); reportDays = !rangeDays || rangeDays > 7 ? 7 : rangeDays; renderInsights(); }); });
 each('[data-days]', function (b) { b.addEventListener('click', function () { reportDays = +b.getAttribute('data-days'); renderReport(); }); });
 $('copyCsv').addEventListener('click', function () { copyText(csv(), $('reportMsg'), t('CSV copied')); });
 $('dlCsv').addEventListener('click', function () { saveFile('drink-pass-' + stamp() + '.csv', csv(), $('reportMsg')); });
@@ -1265,7 +1353,7 @@ $('restoreGo').addEventListener('click', function () {
   maybeSnapshot(true, k('Before restore')).then(function () {
     pr.fresh.forEach(function (x) { log.push(x); });
     if (pr.settings && $('restoreSettings').checked) settings = sanitizeSettings(pr.settings, settings);
-    rangeDays = settings.range; reportDays = rangeDays > 7 ? 7 : rangeDays;
+    rangeDays = settings.range; reportDays = !rangeDays || rangeDays > 7 ? 7 : rangeDays;
     save(); render(); syncSettings(); $('restoreBox').value = ''; $('restorePrev').hidden = true;
     backupMsgFlash(tn(pr.fresh.length, '{n} entry added', '{n} entries added'));
   });

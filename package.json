@@ -1,6 +1,6 @@
 {
   "name": "drink-pass-journal",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "private": true,
   "description": "Installable, offline-first drink and bladder diary. The app is plain static files; these scripts are development tooling only.",
   "type": "module",
