@@ -1,25 +1,25 @@
 /* Drink & Pass Journal service worker: keeps the app working offline. Entries are never touched here. */
 // Bump VERSION with every release (scripts/check-release.mjs enforces it matches package.json).
-var VERSION = '1.4.1';
+var VERSION = '1.4.2';
 // Written by `npm run stamp`. The CDN in front of the site can briefly serve some files from the previous
 // release, so the install checks every file against these hashes and fails rather than cache a mix.
-var BUILD = 'c2ef9839';
+var BUILD = '1f043aa6';
 var FILES = {
   'index.html': '01601325375dc543',
   'manifest.webmanifest': 'ca81ed83a9638314',
   'css/app.css': 'eea312ca459ccd42',
-  'js/app.js': '577328d4db9c5633',
+  'js/app.js': 'f86abbc63f7b2233',
   'js/core.js': 'bba5257e0d417e8b',
   'js/crypto.js': '57422adbc73afa6c',
   'js/fhir.js': '56dfb3c1fd3b4931',
   'js/i18n.js': '15dc398322c98215',
-  'js/i18n/de.js': 'f082bdfe6e2ebcc2',
-  'js/i18n/es.js': 'e1fcd1816b1caff0',
-  'js/i18n/fr.js': '44c7c1b41d838935',
-  'js/i18n/it.js': '94471eeb968c5f23',
-  'js/i18n/nl.js': '62fe8ea5032682f0',
-  'js/i18n/pt.js': '732436b3ba8cc466',
-  'js/i18n/zh.js': 'cba681c0fa654c72',
+  'js/i18n/de.js': '5cccfd61cacc94e1',
+  'js/i18n/es.js': 'c1d377202b499f4f',
+  'js/i18n/fr.js': 'fb9d4a8075ba4bb5',
+  'js/i18n/it.js': 'c1248ea8b5954ded',
+  'js/i18n/nl.js': 'ee8b01b672df5b37',
+  'js/i18n/pt.js': '706ae74b7864c4ad',
+  'js/i18n/zh.js': '95d5d4eb26c275e2',
   'fonts/bricolage-grotesque-latin-ext.woff2': '776f6dcaf03636cd',
   'fonts/bricolage-grotesque-latin.woff2': 'a79fdb52d4a5c765',
   'icons/apple-touch-icon.png': '4747ae745ae58387',

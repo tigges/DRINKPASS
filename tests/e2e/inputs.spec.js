@@ -54,6 +54,16 @@ test('a double tap on Drink keeps the bar and says it was already logged', async
   expect(await stored(page)).toHaveLength(1);
 });
 
+test('tapping an entry in Latest while the bar shows opens it first time', async ({ page }) => {
+  await page.goto('./');
+  await page.locator('#passBtn').click();
+  await expect(page.locator('#bar')).toBeVisible();
+  await page.locator('#list .row').first().click();
+  await expect(page.locator('#sheet')).toBeVisible();
+  await expect(page.locator('#sheetTitle')).toHaveText(/^Pass at /);
+  await expect(page.locator('#bar')).toBeHidden();
+});
+
 test('editing a time waits for the picker to close and moves a linked solid too', async ({ page }) => {
   await page.clock.install({ time: new Date('2026-10-20T12:00:00Z') });
   const t0 = at('2026-10-20T09:00:00Z');

@@ -104,6 +104,31 @@ test('switching languages shows exactly what a fresh start in that language show
   expect(await shown(page)).toEqual(expected);
 });
 
+test.describe('translated sentences keep their own word order', () => {
+  test.use({ locale: 'de' });
+  test('night passes and comparisons read as whole German sentences', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-01-16T23:30:00Z'));
+    await page.goto('./');
+    await restoreSample(page);
+    await page.locator('[data-toggle="compare"]').click();
+    await page.locator('[data-close="settingsSheet"]').click();
+    await expect(page.locator('#tiles .sub').first()).toHaveText(/^Ein −650\s*ml · Aus −500\s*ml ggü\. den 24 Std\. davor$/);
+    await page.locator('[data-close="insightsSheet"]').click();
+
+    await page.locator('#passBtn').click();
+    await page.getByRole('button', { name: /^23:30 Wasserlassen \(nachts\) / }).click();
+    await expect(page.locator('#sheetTitle')).toHaveText('Wasserlassen um 23:30 (nachts)');
+    await page.keyboard.press('Escape');
+
+    await page.locator('#openInsights').click();
+    await expect(page.locator('#tiles .sub', { hasText: /^\+1 ggü\. den 24 Std\. davor$/ })).toHaveCount(1);
+    await page.clock.setFixedTime(new Date('2026-01-18T12:00:00Z'));
+    await page.locator('[data-range="3"]').click();
+    await expect(page.locator('#tiles .sub').first()).toHaveText(/^Ein −650\s*ml · Aus −500\s*ml ggü\. den 3 Tagen davor$/);
+    await expect(page.locator('#tiles .sub', { hasText: /^\+1 ggü\. den 3 Tagen davor$/ })).toHaveCount(1);
+  });
+});
+
 test('Save as PDF prints only the clinician summary, titled with its dates', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-01-15T21:00:00Z'));
   await page.goto('./');
