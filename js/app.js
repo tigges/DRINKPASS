@@ -975,7 +975,8 @@ var swipeY = null;
 $('bar').addEventListener('pointerdown', function (e) { swipeY = e.clientY; if (barId && rowsAsked(find(barId) || {}).length) armBar(10000); });
 $('bar').addEventListener('pointerup', function (e) { if (swipeY !== null && swipeY - e.clientY > 30) hideBar(); swipeY = null; });
 // The log buttons replace the bar themselves; hiding it first would swallow the "Already logged" warning on a double tap.
-document.addEventListener('pointerdown', function (e) { if ((barId || barRestore) && !$('bar').contains(e.target) && !(e.target.closest && e.target.closest('.big, #sleepBtn'))) hideBar(); });
+// Entries open the sheet, which hides the bar; hiding it first moves the list up under the finger and the tap is lost.
+document.addEventListener('pointerdown', function (e) { if ((barId || barRestore) && !$('bar').contains(e.target) && !(e.target.closest && e.target.closest('.big, #sleepBtn, [data-id]'))) hideBar(); });
 $('sheetRemove').addEventListener('click', function () { if (!sheetId) return; var re = find(sheetId), rm = partner(re); remove(sheetId, true); if (re) showRemovedBar(re, rm); });
 $('exactToggle').addEventListener('click', function () { $('exactRow').hidden = false; $('exactInput').focus(); });
 function saveExact() {
