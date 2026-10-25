@@ -297,5 +297,8 @@ export default {
   'on {a} of {b} days': 'op {a} van {b} dagen',
   'typical': 'gebruikelijk',
   'hard': 'hard',
-  'liquid': 'vloeibaar'
+  'liquid': 'vloeibaar',
+  '{n} entry': '{n} item',
+  'Enter an amount up to {max}.': 'Vul een hoeveelheid in tot {max}.',
+  'Night can’t start and end at the same time.': 'De nacht kan niet op hetzelfde tijdstip beginnen en eindigen.',
 };
