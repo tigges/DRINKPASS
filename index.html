@@ -188,25 +188,23 @@
 
 <div class="overlay" id="reportSheet" role="dialog" aria-modal="true" aria-label="Summary for your clinician" hidden>
   <div class="inner">
-    <div class="oh"><h2>Summary for your clinician</h2><button class="iconbtn noprint" data-close="reportSheet" type="button" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button></div>
-    <div class="setrow noprint" role="group" aria-label="Report length">
+    <div class="oh"><h2>Summary for your clinician</h2><button class="iconbtn" data-close="reportSheet" type="button" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div class="setrow" role="group" aria-label="Report length">
       <button class="chip" type="button" data-days="1" aria-pressed="false">1 day</button>
       <button class="chip" type="button" data-days="3" aria-pressed="true">3 days</button>
       <button class="chip" type="button" data-days="7" aria-pressed="false">7 days</button>
     </div>
-    <div class="printonly reptitle" id="reportTitle"></div>
     <div id="reportChart"></div>
     <section class="scroll" id="reportFv" aria-label="Frequency and volume" tabindex="0"></section>
     <div class="scroll" id="reportTable"></div>
-    <div class="setrow noprint">
+    <div class="setrow">
       <button class="btn" id="dlCsv" type="button">Download CSV</button>
       <button class="btn" id="copyCsv" type="button">Copy as CSV</button>
       <button class="btn primary" id="pdfBtn" type="button">Save as PDF</button>
       <span id="reportMsg" class="hint"></span>
     </div>
-    <p class="hint tight noprint">Save as PDF opens the print window: choose Save as PDF as the printer. On iPhone, tap Share in the print options, then Save to Files.</p>
-    <p class="legal noprint">This journal records what you enter. It isn’t medical advice.</p>
-    <p class="printonly repfoot" id="reportFoot"></p>
+    <p class="hint tight">Save as PDF makes an A4 file you can keep, print or send to your clinician.</p>
+    <p class="legal">This journal records what you enter. It isn’t medical advice.</p>
   </div>
 </div>
 

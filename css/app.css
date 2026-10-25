@@ -277,38 +277,16 @@ table.rep td.sleep { color: var(--muted); font-style: italic; }
 .vh { position: absolute; opacity: 0; width: 1px; height: 1px; overflow: hidden; }
 details.auto summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--muted); font-size: .92rem; }
 .snaprow { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; border-bottom: 1px solid var(--line); font-size: .9rem; }
-.printonly { display: none; }
 .trashrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; border-bottom: 1px solid var(--line); font-size: .92rem; }
 .sech { font-size: .88rem; color: var(--muted); margin: 14px 0 6px; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } .ripple { display: none; } }
-@media print {
-  body { overflow: visible; height: auto; background: #fff; color: #000; }
-  body.printing #app, body.printing #settingsSheet, body.printing #insightsSheet, body.printing #sheet { display: none !important; }
-  body.printing #reportSheet { position: static; overflow: visible; padding: 0; background: #fff; color: #0e2a3b; }
-  body.printing .noprint { display: none !important; }
-  body.printing .printonly { display: block !important; }
-  body.printing, body.printing * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body.printing table.rep tr { break-inside: avoid; }
-  body.printing #reportSheet .inner { max-width: none; }
-  body.printing #reportSheet .oh { display: none; }
-  body.printing .scroll { overflow: visible; }
-  body.printing #reportSheet { font-size: 10.5pt; }
-  body.printing table.rep thead { display: table-header-group; }
-  body.printing table.rep tr.dayhead { break-after: avoid; }
-  body.printing table.rep.diary tbody { break-inside: auto; }
-  body.printing #reportChart, body.printing table.rep.fv { break-inside: avoid; }
-  body.printing .reptitle .hint { margin: 0 0 4px; }
-  :root:root:root { --bg: #fff; --surface: #fff; --ink: #0e2a3b; --muted: #555; --line: #d9e3e8; --band: #d5e5ee; --track: #eef4f7; --pill: #e6f0f6; --solid: #8a6a4f; }
-  @page { size: A4; margin: 14mm 12mm 16mm; @bottom-right { content: counter(page) " / " counter(pages); font-size: 9pt; color: #555; } }
-}
 
 .sprite { position: absolute; }
 svg.ic.sm { width: 16px; height: 16px; }
 .two.flush { margin-top: 0; }
 .two.seven { grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .plotmain { flex: 1; min-width: 0; }
-.reptitle { margin-bottom: 8px; }
 .sech.first { margin-top: 4px; }
 .hint.tight { margin-top: -4px; }
 .hint.lead { margin: 0 0 6px; }
@@ -329,9 +307,3 @@ table.rep.fv td:not(:first-child), table.rep.fv th:not(:first-child) { text-alig
 .flag svg { display: block; width: 30px; height: 20px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(14, 42, 59, .18); }
 .flag[aria-pressed="true"] { border-color: var(--ink); background: var(--pill); }
 .big .word { overflow-wrap: anywhere; hyphens: auto; }
-.rephead { font-size: 1.35rem; font-weight: 600; }
-.repsub { color: var(--muted); margin: 2px 0 10px; }
-.repwho { display: flex; gap: 24px; margin: 4px 0 10px; }
-.repfield { flex: 1; display: flex; align-items: flex-end; gap: 8px; font-size: .85rem; }
-.repfield i { flex: 1; height: 1.2em; border-bottom: 1px solid currentColor; }
-.repfoot { font-size: .75rem; color: var(--muted); margin-top: 16px; }
