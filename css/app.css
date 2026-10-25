@@ -212,6 +212,33 @@ table.rep td.sleep { color: var(--muted); font-style: italic; }
 .nicons svg.ic { width: 18px; height: 18px; }
 .nbar { height: 8px; border-radius: 4px; background: var(--track); margin-top: 10px; overflow: hidden; }
 .nbar div { height: 100%; background: var(--ink); }
+.prog { padding: 6px 8px 10px; }
+.prow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 10px; width: 100%; min-height: 44px; padding: 8px 6px; border: 0; border-radius: 12px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.prow + .pdet + .prow { border-top: 1px solid var(--line); border-radius: 0; }
+.prow[aria-expanded="true"] { background: var(--pill); border-radius: 12px; }
+.prow .plab, .prow .pword { font-size: .78rem; color: var(--muted); }
+.prow .pword { text-align: right; }
+.prow .pval { font-weight: 600; font-variant-numeric: tabular-nums; }
+.prow .pval span { white-space: nowrap; }
+.prow svg { width: 104px; height: 34px; justify-self: end; }
+.pdet { padding: 8px 4px 4px; }
+.pdet svg { display: block; width: 100%; height: auto; }
+.prog > .sub { margin: 6px 6px 0; }
+.ptr .pun { fill: var(--track); }
+.ptr .pd { opacity: .5; }
+.ptr .pl { fill: none; stroke: var(--ink); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.ptr .pb { opacity: .22; }
+.ptr .pgrid { stroke: var(--line); stroke-width: 1; }
+.ptr .pax { fill: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.c-pass .pd, .c-pass .pb, .plg .c-pass.pdk, .plg .c-pass.pbk { fill: var(--pass); background: var(--pass); }
+.c-ink .pd, .c-ink .pb, .plg .c-ink.pdk, .plg .c-ink.pbk { fill: var(--ink); background: var(--ink); }
+.c-urg .pd, .c-urg .pb, .plg .c-urg.pdk, .plg .c-urg.pbk { fill: #b38e00; background: #b38e00; }
+.c-drink .pd, .c-drink .pb, .plg .c-drink.pdk, .plg .c-drink.pbk { fill: var(--drink); background: var(--drink); }
+.plg { margin: 6px 0 0; }
+.plg i.pdk { opacity: .6; }
+.plg i.plk { width: 14px; height: 2px; border-radius: 1px; background: var(--ink); }
+.plg i.pbk { width: 14px; height: 8px; border-radius: 2px; opacity: .3; }
+.plg i.puk { width: 8px; height: 10px; border-radius: 2px; background: var(--track); }
 .insh { grid-column: 1 / -1; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 16px 6px 0; }
 .insh:first-child { margin-top: 4px; }
 .insh h3 { margin: 0; font-size: 1.02rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }

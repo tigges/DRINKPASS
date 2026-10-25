@@ -6,6 +6,7 @@ A bladder and drink diary for your phone. Tap **Drink** or **Pass** when it happ
 - One-tap logging with optional size, drink type, urgency, stool type (Bristol scale) and notes
 - Sleep markers (moon and sun) so night passes are counted from your actual night
 - Insights for 24 hours to 30 days, grouped into drinks and output, passes (gaps, nights, passes each day, sizes and urgency) and bowel (days, Bristol types), with an optional comparison to the previous period
+- Progress at 14 days, 30 days and All: how the typical gap, pass size, night passes, urgency and drinks moved from the first logged week to the last, with a daily chart and a 7-day median line for each. Days without entries are left out rather than counted as zero
 - A clinician summary with a frequency and volume table, a dot chart and a detailed diary. **Save as PDF** makes an A4 file in the app (name and date-of-birth lines, page numbers) and saves or shares it, so it also works from the iPhone home screen; it can also be copied or downloaded as CSV
 - English, German, French, Italian, Dutch, Chinese (Simplified), Spanish and Portuguese. The phone's language is used until a flag is chosen in Settings
 - Export everything as CSV or as a FHIR bundle for health-record systems

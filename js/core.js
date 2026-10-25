@@ -182,6 +182,40 @@ export function fvSummary(days, isNight) {
  * Whether to suggest a drink: `hours` since the last drink (or since waking, if later),
  * only while awake, outside night hours, and only for someone actively logging today.
  */
+/**
+ * One row per calendar day for the Progress trends. `days` is [{ start, items }]. A value is null when the day has
+ * nothing to measure it by; `logged` is false when nothing but sleep was entered, so the day is left out, not zero.
+ */
+export function dailySeries(days, isNight) {
+  return days.map(function (d) {
+    var passes = d.items.filter(function (x) { return x.type === 'pass'; }), sized = passes.filter(function (x) { return x.size; });
+    var rated = passes.filter(function (x) { return x.urgency; }), drinks = d.items.filter(function (x) { return x.type === 'drink' && x.size; });
+    var g = []; for (var k = 1; k < passes.length; k++) g.push(passes[k].t - passes[k - 1].t);
+    return {
+      start: d.start, logged: d.items.some(function (x) { return !isSleep(x); }),
+      gap: g.length ? median(g) : null,
+      size: sized.length ? sized.reduce(function (a, x) { return a + x.size.ml; }, 0) / sized.length : null,
+      night: passes.length ? passes.filter(function (x) { return isNight(x.t); }).length : null,
+      urgent: rated.length ? rated.filter(function (x) { return x.urgency === 'strong' || x.urgency === 'cantwait'; }).length / rated.length * 100 : null,
+      intake: drinks.length ? drinks.reduce(function (a, x) { return a + x.size.ml; }, 0) : null
+    };
+  });
+}
+function quartile(a, q) { var b = a.slice().sort(function (x, y) { return x - y; }); return b[Math.round(q * (b.length - 1))]; }
+/** The median and middle half of the last 7 calendar days for each day, once at least 3 of them have a value. */
+export function rolling(series, key) {
+  return series.map(function (r, i) {
+    if (r[key] === null) return null;
+    var win = series.slice(Math.max(0, i - 6), i + 1).map(function (x) { return x[key]; }).filter(function (v) { return v !== null; });
+    return win.length < 3 ? null : { med: median(win), lo: quartile(win, 0.25), hi: quartile(win, 0.75) };
+  });
+}
+/** Median of the first and of the last few days that have a value: a week each, or half the days when there are fewer than 14. */
+export function trendEnds(series, key) {
+  var v = series.map(function (x) { return x[key]; }).filter(function (x) { return x !== null; }), n = Math.min(7, Math.floor(v.length / 2));
+  return n ? { n: n, first: median(v.slice(0, n)), last: median(v.slice(-n)) } : null;
+}
+
 export function drinkReminder(sorted, now, hours, isNight, asleep) {
   if (!hours || asleep || isNight(now)) return null;
   var lastDrink = null, lastWake = null, lastAny = null;
@@ -234,7 +268,7 @@ export function sanitizeSettings(q, base) {
   if (TIME_RE.test(q.nightStart)) out.nightStart = q.nightStart;
   if (TIME_RE.test(q.nightEnd)) out.nightEnd = q.nightEnd;
   ['askSize', 'showUrgency', 'showKind', 'trackSolid', 'showBristol', 'compare'].forEach(function (k) { if (typeof q[k] === 'boolean') out[k] = q[k]; });
-  if ([1, 3, 7, 14, 30].indexOf(+q.range) > -1) out.range = +q.range;
+  if ([0, 1, 3, 7, 14, 30].indexOf(+q.range) > -1) out.range = +q.range;
   if (q.dotScale === 'same' || q.dotScale === 'amount') out.dotScale = q.dotScale;
   if ([0, 2, 3, 4].indexOf(+q.remindAfter) > -1) out.remindAfter = +q.remindAfter;
   if (typeof q.remindNotify === 'boolean') out.remindNotify = q.remindNotify;

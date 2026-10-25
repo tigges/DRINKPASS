@@ -131,3 +131,57 @@ test('times use a 24-hour clock by default and can switch to 12-hour', async ({ 
   await page.locator('[data-days="1"]').click();
   await expect(page.locator('#reportTable')).toContainText('8:00 am');
 });
+
+test('Progress shows how each measure moved, and All covers the whole diary', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-03-20T20:00:00Z'));
+  await page.addInitScript(() => {
+    const log = [], H = 3600e3, first = Date.parse('2026-03-01T00:00:00Z');
+    for (let d = 0; d < 20; d++) {
+      if (d >= 7 && d <= 9) continue;
+      const day = first + d * 24 * H, gap = d < 10 ? 2 : 3;
+      for (let h = 8; h < 20; h += gap) log.push({ id: `p${d}-${h}`, type: 'pass', t: day + h * H, size: { label: 'exact', ml: d < 10 ? 200 : 300 } });
+      for (let i = 0; i < 6; i++) log.push({ id: `d${d}-${i}`, type: 'drink', t: day + (8.5 + 2 * i) * H, size: { label: 'medium', ml: 250 } });
+    }
+    if (!localStorage.getItem('drink-pass-log-v1')) localStorage.setItem('drink-pass-log-v1', JSON.stringify(log));
+  });
+  await page.goto('./');
+  await page.locator('#openInsights').click();
+  await page.locator('[data-range="7"]').click();
+  await expect(page.locator('.prog')).toHaveCount(0);
+  await page.locator('[data-range="14"]').click();
+  await expect(page.locator('.insh').first()).toContainText('first vs last 5 logged days');
+
+  await page.locator('[data-range="0"]').click();
+  await expect(page.locator('#hero')).toBeHidden();
+  await expect(page.locator('#tiles .pdays')).toHaveCount(0);
+  const rows = page.locator('.prow');
+  await expect(rows.locator('.plab')).toHaveText(['Typical gap', 'Average size', 'Night passes, per night', 'Drinks a day']);
+  await expect(rows.locator('.pword')).toHaveText(['longer', 'larger', 'steady', 'steady']);
+  await expect(rows.nth(0).locator('.pval')).toHaveText('2 h → 3 h');
+  await expect(rows.nth(1).locator('.pval')).toHaveText('200 ml → 300 ml');
+  await expect(page.locator('.insh').first()).toContainText('first vs last 7 logged days');
+  await expect(page.locator('#tiles .insh span').nth(2)).toHaveText('82 in 20 days · 4.8 a day');
+
+  await rows.nth(1).click();
+  await expect(page.locator('.prow').nth(1)).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('.prow').nth(1)).toBeFocused();
+  await expect(page.locator('#pdet-size svg')).toHaveAccessibleName('Average size each day, with a 7-day median line');
+  await expect(page.locator('#pdet-size .pun')).toHaveCount(3);
+  await page.locator('.prow').nth(1).click();
+  await expect(page.locator('#pdet-size')).toBeHidden();
+
+  await page.reload();
+  await page.locator('#openInsights').click();
+  await expect(page.locator('[data-range="0"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#openReport').click();
+  await expect(page.locator('[data-days="7"]')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('Progress says how many more days it needs', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-01-15T21:00:00Z'));
+  await page.goto('./');
+  await restoreSample(page);
+  await page.locator('[data-close="settingsSheet"]').click();
+  await page.locator('[data-range="14"]').click();
+  await expect(page.locator('.prog')).toHaveText('Log on 9 more days to see how things change.');
+});
