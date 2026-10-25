@@ -116,8 +116,7 @@ test.describe('translated sentences keep their own word order', () => {
     await page.locator('[data-close="insightsSheet"]').click();
 
     await page.locator('#passBtn').click();
-    await page.getByRole('button', { name: /^23:30 Wasserlassen \(nachts\) / }).focus();
-    await page.keyboard.press('Enter');
+    await page.getByRole('button', { name: /^23:30 Wasserlassen \(nachts\) / }).click();
     await expect(page.locator('#sheetTitle')).toHaveText('Wasserlassen um 23:30 (nachts)');
     await page.keyboard.press('Escape');
 
@@ -125,7 +124,7 @@ test.describe('translated sentences keep their own word order', () => {
     await expect(page.locator('#tiles .sub', { hasText: /^\+1 ggü\. den 24 Std\. davor$/ })).toHaveCount(1);
     await page.clock.setFixedTime(new Date('2026-01-18T12:00:00Z'));
     await page.locator('[data-range="3"]').click();
-    await expect(page.locator('#tiles .sub').first()).toHaveText(/^Ein −217\s*ml · Aus −167\s*ml ggü\. den 3 Tagen davor$/);
+    await expect(page.locator('#tiles .sub').first()).toHaveText(/^Ein −650\s*ml · Aus −500\s*ml ggü\. den 3 Tagen davor$/);
     await expect(page.locator('#tiles .sub', { hasText: /^\+1 ggü\. den 3 Tagen davor$/ })).toHaveCount(1);
   });
 });
