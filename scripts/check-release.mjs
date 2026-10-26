@@ -9,6 +9,8 @@ const problems = [];
 
 const version = /var VERSION = '([^']+)'/.exec(sw)?.[1];
 if (version !== pkg.version) problems.push(`sw.js VERSION is ${version}, package.json version is ${pkg.version}`);
+const appVersion = /export var APP_VERSION = '([^']+)'/.exec(readFileSync(join(root, 'js/core.js'), 'utf8'))?.[1];
+if (appVersion !== pkg.version) problems.push(`js/core.js APP_VERSION is ${appVersion}, package.json version is ${pkg.version}`);
 
 const m = manifest();
 if (!sw.includes(stampBlock(m))) problems.push('sw.js file hashes are out of date: run npm run stamp');

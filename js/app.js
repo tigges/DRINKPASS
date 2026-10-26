@@ -3,7 +3,7 @@ import {
   isSleep, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime as fmtTimeIn, fmtHour, fmtDur as fmtDurIn, agoText as agoTextIn, toLocalInput,
   sortEntries, isoDate, between, sleepModel, sanitizeSettings, migrateLog, DEFAULT_SETTINGS, SCHEMA, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
   fmtVol as fmtVolIn
-  , fvSummary, drinkReminder, lastClockTime, clockFraction, clockSlot, dayOffsetOf, MAX_ML, dailySeries, rolling, trendEnds
+  , fvSummary, drinkReminder, lastClockTime, APP_VERSION, clockFraction, clockSlot, dayOffsetOf, MAX_ML, dailySeries, rolling, trendEnds
 } from './core.js';
 import { toFhirBundle } from './fhir.js';
 import { reportPdf } from './pdf.js';
@@ -1378,6 +1378,7 @@ document.addEventListener('visibilitychange', function () { if (document.visibil
 window.addEventListener('pagehide', flushNote);
 
 function syncSettings() {
+  $('appVersion').textContent = t('Version {v}', { v: APP_VERSION });
   each('[data-unit]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-unit') === settings.unit ? 'true' : 'false'); });
   each('[data-clock]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-clock') === settings.clock ? 'true' : 'false'); });
   each('[data-lang]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-lang') === currentLang() ? 'true' : 'false'); });
@@ -1474,8 +1475,11 @@ function handleShortcut() {
 }
 handleShortcut();
 
+var swReg = null;
+function updateReady() { $('updateBar').hidden = false; $('checkUpdate').textContent = t('Update'); $('updateMsg').textContent = t('A new version of the app is ready.'); }
 function watchUpdates(reg) {
-  var offer = function (w) { if (w && navigator.serviceWorker.controller) { waitingWorker = w; $('updateBar').hidden = false; } };
+  swReg = reg;
+  var offer = function (w) { if (w && navigator.serviceWorker.controller) { waitingWorker = w; updateReady(); } };
   offer(reg.waiting);
   reg.addEventListener('updatefound', function () {
     var w = reg.installing; if (!w) return;
@@ -1484,6 +1488,17 @@ function watchUpdates(reg) {
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') reg.update().catch(function () {}); });
 }
 var waitingWorker = null, reloading = false;
+$('checkUpdate').addEventListener('click', function () {
+  var msg = $('updateMsg');
+  if (waitingWorker) { $('updateNow').click(); return; }
+  if (!swReg) { msg.textContent = t('Updates aren’t available in this browser.'); return; }
+  msg.textContent = t('Checking…');
+  swReg.update().then(function () {
+    var w = swReg.installing;
+    if (!w) { if (!waitingWorker) msg.textContent = t('You have the latest version.'); return; }
+    w.addEventListener('statechange', function () { if (w.state === 'redundant' && msg.textContent === t('Checking…')) msg.textContent = t('The update couldn’t download. Try again later.'); });
+  }, function () { msg.textContent = t('Couldn’t check for updates. Are you online?'); });
+});
 $('updateNow').addEventListener('click', function () {
   if (!waitingWorker) return;
   flushNote(); mirrorNow();
@@ -1491,6 +1506,9 @@ $('updateNow').addEventListener('click', function () {
   waitingWorker.postMessage({ type: 'skip-waiting' });
 });
 if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+  navigator.serviceWorker.addEventListener('message', function (e) {
+    if (e.data && e.data.type === 'install-failed') $('updateMsg').textContent = t('Version {v} couldn’t download: {why}', { v: e.data.version, why: e.data.reason });
+  });
   navigator.serviceWorker.addEventListener('controllerchange', function () {
     if (!waitingWorker || reloading) return;
     reloading = true; location.reload();

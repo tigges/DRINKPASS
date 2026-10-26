@@ -329,4 +329,13 @@ export default {
   'Middle half of days': '中间一半的天数',
   'Not logged': '无记录',
   'Dots: each logged day. Line: the median of the last 7 days. Shaded: not logged.': '点：每个记录日。线：最近 7 天的中位数。阴影：无记录。',
+  'App version': '应用版本',
+  'Version {v}': '版本 {v}',
+  'Check for updates': '检查更新',
+  'Checking…': '正在检查…',
+  'You have the latest version.': '已是最新版本。',
+  'Updates aren’t available in this browser.': '此浏览器不支持更新。',
+  'The update couldn’t download. Try again later.': '更新下载失败，请稍后再试。',
+  'Couldn’t check for updates. Are you online?': '无法检查更新。请确认已联网。',
+  'Version {v} couldn’t download: {why}': '版本 {v} 下载失败：{why}',
 };

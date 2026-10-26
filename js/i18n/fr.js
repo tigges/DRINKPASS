@@ -329,4 +329,13 @@ export default {
   'Middle half of days': 'Moitié centrale des jours',
   'Not logged': 'Rien de saisi',
   'Dots: each logged day. Line: the median of the last 7 days. Shaded: not logged.': 'Points : chaque jour saisi. Ligne : médiane des 7 derniers jours. Zone grisée : rien de saisi.',
+  'App version': 'Version de l’app',
+  'Version {v}': 'Version {v}',
+  'Check for updates': 'Rechercher des mises à jour',
+  'Checking…': 'Vérification…',
+  'You have the latest version.': 'Vous avez la dernière version.',
+  'Updates aren’t available in this browser.': 'Les mises à jour ne sont pas disponibles dans ce navigateur.',
+  'The update couldn’t download. Try again later.': 'La mise à jour n’a pas pu être téléchargée. Réessayez plus tard.',
+  'Couldn’t check for updates. Are you online?': 'Impossible de rechercher des mises à jour. Êtes-vous en ligne ?',
+  'Version {v} couldn’t download: {why}': 'La version {v} n’a pas pu être téléchargée : {why}',
 };
