@@ -338,4 +338,12 @@ export default {
   'The update couldn’t download. Try again later.': 'La mise à jour n’a pas pu être téléchargée. Réessayez plus tard.',
   'Couldn’t check for updates. Are you online?': 'Impossible de rechercher des mises à jour. Êtes-vous en ligne ?',
   'Version {v} couldn’t download: {why}': 'La version {v} n’a pas pu être téléchargée : {why}',
+  'Open Insights for the last 24 hours.': 'Ouvrir les analyses des dernières 24 heures.',
+  'In today': 'Entrée du jour',
+  'Out today': 'Sortie du jour',
+  'Passes today': 'Mictions du jour',
+  'Since last pass': 'Depuis la dernière miction',
+  'Main screen': 'Écran principal',
+  'Today’s totals': 'Totaux du jour',
+  'Shows what you drank and passed today above the list. Tap the totals to open Insights. On very short screens they’re hidden to keep room for the buttons.': 'Affiche au-dessus de la liste ce que vous avez bu et éliminé aujourd’hui. Touchez les totaux pour ouvrir les analyses. Sur les très petits écrans, ils sont masqués pour laisser de la place aux boutons.',
 };

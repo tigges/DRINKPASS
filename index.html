@@ -77,37 +77,47 @@
     </span>
   </header>
 
-  <div class="whenwrap">
-    <button class="pill" id="whenPill" type="button" aria-expanded="false" aria-controls="whenOpts">
-      <svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg><span class="sr">When: </span><span id="whenText">Now</span><svg class="ic chev"><use href="#i-down"/></svg>
-    </button>
-    <div class="whenopts" id="whenOpts" role="group" aria-label="When did it happen?" hidden>
-      <button class="chip" type="button" data-when="now" aria-pressed="true">Now</button>
-      <button class="chip" type="button" data-when="5" aria-pressed="false">5 min ago</button>
-      <button class="chip" type="button" data-when="15" aria-pressed="false">15 min ago</button>
-      <button class="chip" type="button" data-when="pick" aria-pressed="false">Pick a time</button>
-      <input class="timein" id="pickTime" type="time" aria-label="Time it happened" hidden>
-    </div>
-  </div>
-
-  <div class="big">
-    <button id="drinkBtn" type="button" aria-describedby="drinkSub">
-      <svg class="ic" aria-hidden="true"><use href="#i-cup"/></svg>
-      <span class="sr">Log a drink</span><span class="word" aria-hidden="true">Drink</span><span class="sub" id="drinkSub" aria-hidden="true">Not yet</span>
-    </button>
-    <button id="passBtn" type="button" aria-describedby="passSub">
-      <svg class="ic" aria-hidden="true"><use href="#i-drop"/></svg>
-      <span class="sr">Log a pass</span><span class="word" aria-hidden="true">Pass</span><span class="sub" id="passSub" aria-hidden="true">Not yet</span>
-    </button>
-  </div>
-
-  <div class="bar" id="bar" hidden>
-    <div class="barrow"><span id="barMsg" role="status"></span><span class="baracts"><button type="button" id="barMore">More</button><button type="button" id="barUndo">Undo</button></span></div>
-    <div id="barRows"></div>
-  </div>
+  <button class="today" id="todayStrip" type="button">
+    <span class="sr">Open Insights for the last 24 hours.</span>
+    <span class="tc"><span class="tl">In today</span><b id="tdIn"></b></span>
+    <span class="tc"><span class="tl">Out today</span><b id="tdOut"></b></span>
+    <span class="tc"><span class="tl">Passes today</span><b id="tdPasses"></b></span>
+    <span class="tc"><span class="tl">Since last pass</span><b id="tdSince"></b></span>
+  </button>
 
   <div class="lathead"><h2>Latest</h2><span id="todayCount"></span></div>
   <div id="list"></div>
+
+  <div class="dock">
+    <div class="bar" id="bar" hidden>
+      <div class="barrow"><span id="barMsg" role="status"></span><span class="baracts"><button type="button" id="barMore">More</button><button type="button" id="barUndo">Undo</button></span></div>
+      <div id="barRows"></div>
+    </div>
+
+    <div class="whenwrap">
+      <button class="pill" id="whenPill" type="button" aria-expanded="false" aria-controls="whenOpts">
+        <svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg><span class="sr">When: </span><span id="whenText">Now</span><svg class="ic chev"><use href="#i-down"/></svg>
+      </button>
+      <div class="whenopts" id="whenOpts" role="group" aria-label="When did it happen?" hidden>
+        <button class="chip" type="button" data-when="now" aria-pressed="true">Now</button>
+        <button class="chip" type="button" data-when="5" aria-pressed="false">5 min ago</button>
+        <button class="chip" type="button" data-when="15" aria-pressed="false">15 min ago</button>
+        <button class="chip" type="button" data-when="pick" aria-pressed="false">Pick a time</button>
+        <input class="timein" id="pickTime" type="time" aria-label="Time it happened" hidden>
+      </div>
+    </div>
+
+    <div class="big">
+      <button id="drinkBtn" type="button" aria-describedby="drinkSub">
+        <svg class="ic" aria-hidden="true"><use href="#i-cup"/></svg>
+        <span class="sr">Log a drink</span><span class="word" aria-hidden="true">Drink</span><span class="sub" id="drinkSub" aria-hidden="true">Not yet</span>
+      </button>
+      <button id="passBtn" type="button" aria-describedby="passSub">
+        <svg class="ic" aria-hidden="true"><use href="#i-drop"/></svg>
+        <span class="sr">Log a pass</span><span class="word" aria-hidden="true">Pass</span><span class="sub" id="passSub" aria-hidden="true">Not yet</span>
+      </button>
+    </div>
+  </div>
 
 </main>
 
@@ -255,6 +265,11 @@
     <div class="setrow" role="group" aria-label="Insights">
       <button class="chip" type="button" data-toggle="compare" aria-pressed="false">Compare with previous period</button>
     </div>
+    <div class="sech">Main screen</div>
+    <div class="setrow" role="group" aria-label="Main screen">
+      <button class="chip" type="button" data-toggle="showToday" aria-pressed="true">Today’s totals</button>
+    </div>
+    <p class="hint tight">Shows what you drank and passed today above the list. Tap the totals to open Insights. On very short screens they’re hidden to keep room for the buttons.</p>
     <div class="sech">Night hours</div>
     <div class="setrow"><label for="nightStart">Night starts</label><input class="timein" id="nightStart" type="time" value="22:00"></div>
     <div class="setrow"><label for="nightEnd">Night ends</label><input class="timein" id="nightEnd" type="time" value="06:00"></div>

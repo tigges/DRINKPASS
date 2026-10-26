@@ -338,4 +338,12 @@ export default {
   'The update couldn’t download. Try again later.': '更新下载失败，请稍后再试。',
   'Couldn’t check for updates. Are you online?': '无法检查更新。请确认已联网。',
   'Version {v} couldn’t download: {why}': '版本 {v} 下载失败：{why}',
+  'Open Insights for the last 24 hours.': '打开最近 24 小时的统计。',
+  'In today': '今日摄入',
+  'Out today': '今日排出',
+  'Passes today': '今日排尿次数',
+  'Since last pass': '距上次排尿',
+  'Main screen': '主屏幕',
+  'Today’s totals': '今日合计',
+  'Shows what you drank and passed today above the list. Tap the totals to open Insights. On very short screens they’re hidden to keep room for the buttons.': '在列表上方显示今天的饮水和排尿量。点合计可打开统计。屏幕很矮时会隐藏，以便给按钮留出空间。',
 };

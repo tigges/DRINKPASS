@@ -338,4 +338,12 @@ export default {
   'The update couldn’t download. Try again later.': 'Não foi possível transferir a atualização. Tenta mais tarde.',
   'Couldn’t check for updates. Are you online?': 'Não foi possível procurar atualizações. Estás online?',
   'Version {v} couldn’t download: {why}': 'Não foi possível transferir a versão {v}: {why}',
+  'Open Insights for the last 24 hours.': 'Abrir o resumo das últimas 24 horas.',
+  'In today': 'Entrada hoje',
+  'Out today': 'Saída hoje',
+  'Passes today': 'Micções hoje',
+  'Since last pass': 'Desde a última micção',
+  'Main screen': 'Ecrã principal',
+  'Today’s totals': 'Totais de hoje',
+  'Shows what you drank and passed today above the list. Tap the totals to open Insights. On very short screens they’re hidden to keep room for the buttons.': 'Mostra por cima da lista o que bebeste e urinaste hoje. Toca nos totais para abrir o resumo. Em ecrãs muito baixos ficam ocultos para dar espaço aos botões.',
 };

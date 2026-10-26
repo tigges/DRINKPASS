@@ -143,6 +143,12 @@ test('the clock setting defaults to 24-hour and accepts only 24 or 12', () => {
   assert.equal(sanitizeSettings({ clock: 12 }).clock, '24');
 });
 
+test('today’s totals show by default, including for settings saved before the option existed', () => {
+  assert.equal(sanitizeSettings({ unit: 'oz' }).showToday, true);
+  assert.equal(sanitizeSettings({ showToday: false }).showToday, false);
+  assert.equal(sanitizeSettings({ showToday: 'no' }).showToday, true);
+});
+
 test('sanitizeSettings ignores malformed values', () => {
   const s = sanitizeSettings({ unit: 'gallons', nightStart: '25:00', nightEnd: '07:00', compare: 'yes', range: 7, dotScale: 'amount' });
   assert.equal(s.unit, DEFAULT_SETTINGS.unit);

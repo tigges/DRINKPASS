@@ -338,4 +338,12 @@ export default {
   'The update couldn’t download. Try again later.': 'No se pudo descargar la actualización. Inténtalo más tarde.',
   'Couldn’t check for updates. Are you online?': 'No se pudieron buscar actualizaciones. ¿Tienes conexión?',
   'Version {v} couldn’t download: {why}': 'No se pudo descargar la versión {v}: {why}',
+  'Open Insights for the last 24 hours.': 'Abrir el resumen de las últimas 24 horas.',
+  'In today': 'Entrada hoy',
+  'Out today': 'Salida hoy',
+  'Passes today': 'Micciones hoy',
+  'Since last pass': 'Desde la última micción',
+  'Main screen': 'Pantalla principal',
+  'Today’s totals': 'Totales de hoy',
+  'Shows what you drank and passed today above the list. Tap the totals to open Insights. On very short screens they’re hidden to keep room for the buttons.': 'Muestra encima de la lista lo que has bebido y orinado hoy. Toca los totales para abrir el resumen. En pantallas muy bajas se ocultan para dejar sitio a los botones.',
 };
