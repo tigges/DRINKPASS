@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { stored } from './helpers.js';
+import { stored, openSettings } from './helpers.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -86,6 +86,28 @@ test('an update is refused while the server still sends a file from another rele
     edit('css/app.css', (s) => s.replace('\n/* previous release */\n', ''));
     await checkForUpdate(page);
     await expect(page.locator('#updateBar')).toBeVisible();
+  });
+});
+
+test('Settings shows the version and checks for updates, saying why one didn’t download', async ({ page }) => {
+  const version = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
+  await withRelease(page, async ({ edit, publish }) => {
+    await openSettings(page);
+    await expect(page.locator('#appVersion')).toHaveText(`Version ${version}`);
+    await page.locator('#checkUpdate').click();
+    await expect(page.locator('#updateMsg')).toHaveText('You have the latest version.');
+
+    edit('css/app.css', (s) => s + '\n/* previous release */\n');
+    publish('test-next');
+    await page.locator('#checkUpdate').click();
+    await expect(page.locator('#updateMsg')).toHaveText(/^Version test-next couldn’t download: css\/app\.css is not the test-next \([0-9a-f]+\) copy yet$/);
+
+    edit('css/app.css', (s) => s.replace('\n/* previous release */\n', ''));
+    await page.locator('#checkUpdate').click();
+    await expect(page.locator('#updateMsg')).toHaveText('A new version of the app is ready.');
+    await expect(page.locator('#checkUpdate')).toHaveText('Update');
+    await Promise.all([page.waitForEvent('load'), page.locator('#checkUpdate').click()]);
+    await expect.poll(async () => (await cacheNames(page)).map((k) => k.replace(/-[0-9a-f]+$/, ''))).toEqual(['dp-shell-test-next']);
   });
 });
 

@@ -1,3 +1,5 @@
+// Matches package.json and sw.js; scripts/check-release.mjs enforces it.
+export var APP_VERSION = '1.5.1';
 export var OZ = 29.5735, H = 3600000, DAY = 86400000, MAX_ML = 5000;
 
 export var VALID_TYPES = ['drink', 'pass', 'solid', 'bed', 'wake'];

@@ -1,26 +1,26 @@
 /* Drink & Pass Journal service worker: keeps the app working offline. Entries are never touched here. */
 // Bump VERSION with every release (scripts/check-release.mjs enforces it matches package.json).
-var VERSION = '1.5.0';
+var VERSION = '1.5.1';
 // Written by `npm run stamp`. The CDN in front of the site can briefly serve some files from the previous
 // release, so the install checks every file against these hashes and fails rather than cache a mix.
-var BUILD = 'e5ec68de';
+var BUILD = 'ed3422b3';
 var FILES = {
-  'index.html': '26e65fb27443e08c',
+  'index.html': 'a25bc54bcd47edfb',
   'manifest.webmanifest': 'ca81ed83a9638314',
   'css/app.css': '910d9262b5086720',
-  'js/app.js': '207c5ef7187e5a2e',
-  'js/core.js': '50a5ab1b64220f24',
+  'js/app.js': '5c1d3655724e98d4',
+  'js/core.js': '15f01e19de32c740',
   'js/crypto.js': '57422adbc73afa6c',
   'js/fhir.js': '56dfb3c1fd3b4931',
   'js/i18n.js': '15dc398322c98215',
   'js/pdf.js': '2433bffc70a829e4',
-  'js/i18n/de.js': 'ab76209abc8fc43f',
-  'js/i18n/es.js': 'd39fdb99d77bc7cf',
-  'js/i18n/fr.js': 'e369d23bbb06bbb6',
-  'js/i18n/it.js': 'e55c2392159b8dea',
-  'js/i18n/nl.js': '929a19e28a75c99b',
-  'js/i18n/pt.js': '8bd036aee582ee04',
-  'js/i18n/zh.js': '3e983331d6ae68a7',
+  'js/i18n/de.js': '8eae2927f943bc1c',
+  'js/i18n/es.js': '4129d7b3ad8ddaa8',
+  'js/i18n/fr.js': '0fa6889072a8e9f4',
+  'js/i18n/it.js': '33b835d9c624c74a',
+  'js/i18n/nl.js': '94a780bfa7dbf46f',
+  'js/i18n/pt.js': '71ea1a263cbdf2bd',
+  'js/i18n/zh.js': 'b0259691a4558652',
   'fonts/bricolage-grotesque-latin-ext.woff2': '776f6dcaf03636cd',
   'fonts/bricolage-grotesque-latin.woff2': 'a79fdb52d4a5c765',
   'icons/apple-touch-icon.png': '4747ae745ae58387',
@@ -53,7 +53,11 @@ self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) {
     return Promise.all(Object.keys(FILES).map(function (f) { return precache(c, f); }));
   }).catch(function (err) {
-    return caches.delete(CACHE).then(function () { throw err; });
+    // Tell open pages, so Settings can say why the update didn't arrive.
+    var told = self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (cs) {
+      cs.forEach(function (c) { c.postMessage({ type: 'install-failed', version: VERSION, reason: String(err && err.message || err) }); });
+    });
+    return Promise.all([caches.delete(CACHE), told]).then(function () { throw err; });
   }));
 });
 // The page asks for this when the user taps Update, so a new version never swaps in mid-session.

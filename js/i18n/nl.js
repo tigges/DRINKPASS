@@ -329,4 +329,13 @@ export default {
   'Middle half of days': 'Middelste helft van de dagen',
   'Not logged': 'Niets ingevuld',
   'Dots: each logged day. Line: the median of the last 7 days. Shaded: not logged.': 'Punten: elke ingevulde dag. Lijn: mediaan van de laatste 7 dagen. Gearceerd: niets ingevuld.',
+  'App version': 'App-versie',
+  'Version {v}': 'Versie {v}',
+  'Check for updates': 'Zoeken naar updates',
+  'Checking…': 'Controleren…',
+  'You have the latest version.': 'Je hebt de nieuwste versie.',
+  'Updates aren’t available in this browser.': 'Updates zijn niet beschikbaar in deze browser.',
+  'The update couldn’t download. Try again later.': 'De update kon niet worden gedownload. Probeer het later opnieuw.',
+  'Couldn’t check for updates. Are you online?': 'Zoeken naar updates lukt niet. Ben je online?',
+  'Version {v} couldn’t download: {why}': 'Versie {v} kon niet worden gedownload: {why}',
 };
