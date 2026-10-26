@@ -332,7 +332,7 @@ function sizeRow(entry) {
   list.forEach(function (c) {
     var b = document.createElement('button'); b.type = 'button';
     b.appendChild(document.createTextNode(c.name));
-    var sm = document.createElement('small');
+    var sm = document.createElement('small'); sm.appendChild(document.createTextNode(' '));
     if (c.last) sm.appendChild(svgIcon('i-repeat', 11));
     sm.appendChild(document.createTextNode(fmtVol(c.ml))); b.appendChild(sm);
     if (c.last) b.setAttribute('aria-label', t('{name}, {vol}, same as last time', { name: c.name, vol: fmtVol(c.ml) }));
@@ -410,6 +410,13 @@ function renderStats() {
   var lp = s.filter(function (x) { return x.type === 'pass'; }).pop();
   $('drinkSub').textContent = ld ? cap(agoText(ld.t)) : t('Not yet');
   $('passSub').textContent = lp ? cap(agoText(lp.t)) : t('Not yet');
+  $('todayStrip').hidden = settings.showToday === false;
+  var today = startOfDay(Date.now()), td = s.filter(function (x) { return x.t >= today; });
+  var tin = sum(td.filter(function (x) { return x.type === 'drink'; })), passes = td.filter(function (x) { return x.type === 'pass'; }), tout = sum(passes);
+  $('tdIn').textContent = tin[1] ? fmtVol(tin[0]) : '–';
+  $('tdOut').textContent = tout[1] ? fmtVol(tout[0]) : '–';
+  $('tdPasses').textContent = passes.length.toLocaleString(currentLocale());
+  $('tdSince').textContent = lp ? fmtDur(Math.max(0, Date.now() - lp.t)) : '–';
 }
 
 var ROW_H = 56, MORE_H = 46;
@@ -1142,6 +1149,10 @@ $('nudgeP').addEventListener('click', function () { nudgeTime(5); });
 $('nudgeNow').addEventListener('click', function () { syncSettings(); showOverlay('settingsSheet'); });
 $('nudgeLater').addEventListener('click', function () { bk.snooze = Date.now() + DAY; saveBk(); updateNudge(); });
 $('openInsights').addEventListener('click', function () { renderInsights(); showOverlay('insightsSheet'); });
+$('todayStrip').addEventListener('click', function () {
+  rangeDays = 1; settings.range = 1; reportDays = 1; save();
+  renderInsights(); showOverlay('insightsSheet');
+});
 $('openReport').addEventListener('click', function () { renderReport(); showOverlay('reportSheet'); });
 $('openSettings').addEventListener('click', function () { syncSettings(); showOverlay('settingsSheet'); });
 each('[data-close]', function (b) { b.addEventListener('click', function () { hideOverlay(b.getAttribute('data-close')); }); });

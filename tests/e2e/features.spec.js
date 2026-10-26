@@ -185,3 +185,47 @@ test('Progress says how many more days it needs', async ({ page }) => {
   await page.locator('[data-range="14"]').click();
   await expect(page.locator('.prog')).toHaveText('Log on 9 more days to see how things change.');
 });
+
+test('today’s totals sit above the list and open Insights at 24 h', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-01-15T21:00:00Z'));
+  await page.goto('./');
+  await restoreSample(page);
+  await page.locator('[data-close="settingsSheet"]').click();
+  await page.locator('[data-range="7"]').click();
+  await page.locator('[data-close="insightsSheet"]').click();
+  const strip = page.locator('#todayStrip');
+  await expect(strip.locator('b')).toHaveText(['650\u00a0ml', '500\u00a0ml', '3', '6 h']);
+  await expect(strip).toHaveAccessibleName(/^Open Insights for the last 24 hours\. In today 650\s+ml/);
+  await strip.click();
+  await expect(page.locator('#insightsSheet')).toBeVisible();
+  await expect(page.locator('[data-range="1"]')).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('drink-pass-settings-v1') || '{}').range)).toBe(1);
+
+  await page.locator('#openSettings').click();
+  await page.locator('[data-toggle="showToday"]').click();
+  await expect(page.locator('[data-toggle="showToday"]')).toHaveAttribute('aria-pressed', 'false');
+  await page.reload();
+  await expect(strip).toBeHidden();
+});
+
+test('today’s totals show dashes before anything is logged', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.locator('#todayStrip b')).toHaveText(['–', '–', '0', '–']);
+});
+
+for (const [w, h, stripShown] of [[412, 839, true], [320, 568, false]]) {
+  test(`at ${w}×${h} the log buttons sit at the bottom with the after-log bar just above`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto('./');
+    await expect(page.locator('#todayStrip')).toBeVisible({ visible: stripShown });
+    const btn = await page.locator('#drinkBtn').boundingBox();
+    expect(btn.y + btn.height).toBeGreaterThan(h - 40);
+    expect(btn.y + btn.height).toBeLessThanOrEqual(h);
+    expect(btn.height).toBeGreaterThanOrEqual(88);
+    await page.locator('#passBtn').click();
+    const bar = await page.locator('#bar').boundingBox(), btn2 = await page.locator('#passBtn').boundingBox();
+    expect(bar.y + bar.height).toBeLessThanOrEqual(btn2.y);
+    expect(btn2.y + btn2.height).toBeLessThanOrEqual(h);
+    await expect(page.locator('#list .row').first()).toBeInViewport();
+  });
+}

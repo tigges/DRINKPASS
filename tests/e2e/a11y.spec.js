@@ -99,3 +99,14 @@ test('chart dots can be reached and opened from the keyboard', async ({ page }) 
   await page.keyboard.press('Escape');
   await expect(dots.first()).toBeFocused();
 });
+
+test('the main screen passes axe on a small phone with the after-log bar open', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('./');
+  await restoreSample(page);
+  await page.locator('[data-close="settingsSheet"]').click();
+  await page.locator('[data-close="insightsSheet"]').click();
+  await page.locator('#drinkBtn').click();
+  await expect(page.locator('#bar')).toBeVisible();
+  await axe(page, 'main 320x568');
+});

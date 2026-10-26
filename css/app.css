@@ -51,7 +51,14 @@ svg.ic { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-wid
 .nudge .acts { display: flex; gap: 4px; }
 .nudge button { appearance: none; border: 0; background: transparent; color: inherit; font-weight: 600; min-height: 36px; padding: 0 10px; border-radius: 10px; cursor: pointer; }
 
-.whenwrap { flex: none; padding-bottom: 10px; }
+.today { appearance: none; border: 1px solid var(--line); background: var(--surface); border-radius: 18px; width: 100%; flex: none; margin-top: 6px; padding: 10px 6px;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; cursor: pointer; text-align: center; }
+.today:active { background: var(--pill); }
+.today .tc { display: flex; flex-direction: column-reverse; justify-content: flex-end; gap: 2px; min-width: 0; }
+.today b { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; overflow-wrap: anywhere; }
+.today .tl { font-size: .72rem; color: var(--muted); line-height: 1.2; overflow-wrap: anywhere; hyphens: auto; }
+.dock { flex: none; padding: 10px 0 12px; }
+.whenwrap { padding-bottom: 10px; }
 .pill { appearance: none; border: 0; background: var(--pill); border-radius: 999px; height: 38px; padding: 0 14px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: .92rem; }
 .pill svg.ic { width: 16px; height: 16px; color: var(--muted); }
 .pill svg.ic.chev { width: 14px; height: 14px; transition: transform .15s ease; }
@@ -63,7 +70,7 @@ svg.ic { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-wid
 .timein { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 0 10px; height: 40px; flex: none; }
 
 .big { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; flex: none; width: 100%; max-width: 420px; margin: 0 auto; }
-.big button { appearance: none; border: 0; cursor: pointer; border-radius: 30px; aspect-ratio: 1 / 1; padding: 10px;
+.big button { appearance: none; border: 0; cursor: pointer; border-radius: 30px; height: clamp(104px, 17dvh, 140px); padding: 10px;
   display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 6px; transition: transform .12s ease;
   position: relative; overflow: hidden; }
 .big button:active { transform: scale(.97); }
@@ -75,9 +82,9 @@ svg.ic { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-wid
 .ripple { position: absolute; border-radius: 50%; pointer-events: none; transform: scale(0); animation: rip .65s ease-out forwards; }
 #drinkBtn .ripple { background: rgba(255,255,255,.35); } #passBtn .ripple { background: rgba(61,48,0,.16); }
 @keyframes rip { to { transform: scale(1); opacity: 0; } }
-.big button { max-height: max(112px, calc(100dvh - 350px)); }
-@media (max-height: 560px) {
-  .big button { gap: 3px; } .big svg.ic { width: 28px; height: 28px; } .big .word { font-size: 1.25rem; }
+@media (max-height: 600px) {
+  .today { display: none; }
+  .big button { height: 88px; padding: 6px; gap: 3px; } .big svg.ic { width: 28px; height: 28px; } .big .word { font-size: 1.25rem; }
 }
 
 .daybar { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; flex: none; }
@@ -107,8 +114,8 @@ svg.ic { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-wid
 .tag { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: var(--pill); color: var(--muted); font-size: .72rem; vertical-align: 1px; }
 .empty { padding: 26px 12px; color: var(--muted); text-align: center; }
 
-.bar { flex: none; margin-top: 12px; background: var(--ink); color: var(--bg); border-radius: 18px; padding: 6px 8px 8px; animation: barin .18s ease-out; }
-@keyframes barin { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.bar { margin-bottom: 10px; background: var(--ink); color: var(--bg); border-radius: 18px; padding: 6px 8px 8px; animation: barin .18s ease-out; }
+@keyframes barin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .barrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 40px; padding: 0 4px; font-size: .92rem; }
 .baracts { display: flex; flex: none; }
 .baracts button { appearance: none; border: 0; background: transparent; color: inherit; min-height: 40px; padding: 0 10px; border-radius: 10px; cursor: pointer; font-size: .85rem; opacity: .9; }

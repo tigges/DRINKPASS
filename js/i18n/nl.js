@@ -338,4 +338,12 @@ export default {
   'The update couldn’t download. Try again later.': 'De update kon niet worden gedownload. Probeer het later opnieuw.',
   'Couldn’t check for updates. Are you online?': 'Zoeken naar updates lukt niet. Ben je online?',
   'Version {v} couldn’t download: {why}': 'Versie {v} kon niet worden gedownload: {why}',
+  'Open Insights for the last 24 hours.': 'Inzichten van de afgelopen 24 uur openen.',
+  'In today': 'In vandaag',
+  'Out today': 'Uit vandaag',
+  'Passes today': 'Plasbeurten vandaag',
+  'Since last pass': 'Sinds vorige plasbeurt',
+  'Main screen': 'Hoofdscherm',
+  'Today’s totals': 'Totalen van vandaag',
+  'Shows what you drank and passed today above the list. Tap the totals to open Insights. On very short screens they’re hidden to keep room for the buttons.': 'Toont boven de lijst wat je vandaag hebt gedronken en geplast. Tik op de totalen om Inzichten te openen. Op heel kleine schermen worden ze verborgen zodat de knoppen ruimte houden.',
 };

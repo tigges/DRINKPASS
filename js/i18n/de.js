@@ -338,4 +338,12 @@ export default {
   'The update couldn’t download. Try again later.': 'Das Update konnte nicht geladen werden. Versuche es später noch einmal.',
   'Couldn’t check for updates. Are you online?': 'Suche nach Updates nicht möglich. Bist du online?',
   'Version {v} couldn’t download: {why}': 'Version {v} konnte nicht geladen werden: {why}',
+  'Open Insights for the last 24 hours.': 'Auswertung der letzten 24 Stunden öffnen.',
+  'In today': 'Heute ein',
+  'Out today': 'Heute aus',
+  'Passes today': 'Wasserlassen heute',
+  'Since last pass': 'Seit letztem Wasserlassen',
+  'Main screen': 'Startbildschirm',
+  'Today’s totals': 'Heutige Summen',
+  'Shows what you drank and passed today above the list. Tap the totals to open Insights. On very short screens they’re hidden to keep room for the buttons.': 'Zeigt über der Liste, was du heute getrunken und ausgeschieden hast. Tippe auf die Summen, um die Auswertung zu öffnen. Auf sehr kleinen Bildschirmen werden sie ausgeblendet, damit die Knöpfe Platz haben.',
 };

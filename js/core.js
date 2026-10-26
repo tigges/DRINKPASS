@@ -1,5 +1,5 @@
 // Matches package.json and sw.js; scripts/check-release.mjs enforces it.
-export var APP_VERSION = '1.5.2';
+export var APP_VERSION = '1.5.3';
 export var OZ = 29.5735, H = 3600000, DAY = 86400000, MAX_ML = 5000;
 
 export var VALID_TYPES = ['drink', 'pass', 'solid', 'bed', 'wake'];
@@ -235,7 +235,7 @@ export function drinkReminder(sorted, now, hours, isNight, asleep) {
 }
 
 export var SCHEMA = 2;
-export var DEFAULT_SETTINGS = { unit: 'ml', nightStart: '22:00', nightEnd: '06:00', askSize: true, showUrgency: true, showKind: true, range: 1, dotScale: 'same', trackSolid: false, showBristol: false, compare: false, remindAfter: 0, remindNotify: false, clock: '24', lang: '' };
+export var DEFAULT_SETTINGS = { unit: 'ml', nightStart: '22:00', nightEnd: '06:00', askSize: true, showUrgency: true, showKind: true, range: 1, dotScale: 'same', trackSolid: false, showBristol: false, compare: false, showToday: true, remindAfter: 0, remindNotify: false, clock: '24', lang: '' };
 var SIZE_LABELS = ['small', 'medium', 'large', 'exact'];
 var TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 var EARLIEST = Date.UTC(2000, 0, 1);
@@ -269,7 +269,7 @@ export function sanitizeSettings(q, base) {
   if (q.unit === 'ml' || q.unit === 'oz') out.unit = q.unit;
   if (TIME_RE.test(q.nightStart)) out.nightStart = q.nightStart;
   if (TIME_RE.test(q.nightEnd)) out.nightEnd = q.nightEnd;
-  ['askSize', 'showUrgency', 'showKind', 'trackSolid', 'showBristol', 'compare'].forEach(function (k) { if (typeof q[k] === 'boolean') out[k] = q[k]; });
+  ['askSize', 'showUrgency', 'showKind', 'trackSolid', 'showBristol', 'compare', 'showToday'].forEach(function (k) { if (typeof q[k] === 'boolean') out[k] = q[k]; });
   if ([0, 1, 3, 7, 14, 30].indexOf(+q.range) > -1) out.range = +q.range;
   if (q.dotScale === 'same' || q.dotScale === 'amount') out.dotScale = q.dotScale;
   if ([0, 2, 3, 4].indexOf(+q.remindAfter) > -1) out.remindAfter = +q.remindAfter;
