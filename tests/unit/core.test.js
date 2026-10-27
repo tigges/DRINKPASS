@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   H, DAY, fmtDur, fmtTime, fmtHour, fmtVol, mins, median, sleepModel, isNightAt, isAsleepAt, clockNight, computeGaps,
-  periodStats, csvCell, toCsv, sortEntries, between, dayRange, startOfDay, sanitizeEntry, sanitizeSettings, migrateLog, DEFAULT_SETTINGS
+  periodStats, csvCell, toCsv, sortEntries, between, dayRange, startOfDay, sanitizeEntry, sanitizeSettings, migrateLog, DEFAULT_SETTINGS,
+  trainGap, nextPlannedPass, lateDrinkNights, dailySeries
 } from '../../js/core.js';
 
 const at = (s) => new Date(s).getTime();
@@ -178,8 +179,13 @@ test('migrateLog drops invalid and duplicate entries and broken links', () => {
 test('toCsv writes one row per entry', () => {
   const t = at('2026-10-24T08:05');
   const out = toCsv([{ id: '1', type: 'pass', t, size: { label: 'small', ml: 100 }, urgency: 'mild', note: 'x, y' }], () => false).split('\n');
-  assert.equal(out[0], 'date,time,type,drink_type,size,ml,night,urgency,bristol,note');
-  assert.equal(out[1], '2026-10-24,08:05,pass,,small,100,no,mild,,"x, y"');
+  assert.equal(out[0], 'date,time,type,drink_type,size,ml,night,urgency,bristol,leak_amount,leak_cause,pad_changed,note');
+  assert.equal(out[1], '2026-10-24,08:05,pass,,small,100,no,mild,,,,,"x, y"');
+});
+
+test('toCsv writes how much leaked, what set it off and a pad change', () => {
+  const out = toCsv([{ id: '1', type: 'leak', t: at('2026-10-24T08:05'), amount: 'drops', cause: 'cough', pad: true }], () => false).split('\n');
+  assert.equal(out[1], '2026-10-24,08:05,leak,,,,,,,drops,cough,yes,');
 });
 
 test('dayRange spans a calendar day across the October clock change', () => {
@@ -214,4 +220,68 @@ test('between returns the half-open time slice', () => {
   assert.deepEqual(between(s, 2, 5).map((x) => x.t), [2, 2, 3]);
   assert.deepEqual(between(s, 0, 1), []);
   assert.deepEqual(between(s, 4, Infinity).map((x) => x.t), [5]);
+});
+
+test('leaks keep a known amount, cause and pad change; tablets and exercises keep a note', () => {
+  const now = at('2026-10-24T12:00');
+  assert.deepEqual(sanitizeEntry({ id: 'l', type: 'leak', t: now - H, amount: 'small', cause: 'urge', pad: true, size: { label: 'small', ml: 100 } }, now),
+    { id: 'l', type: 'leak', t: now - H, amount: 'small', cause: 'urge', pad: true });
+  assert.deepEqual(sanitizeEntry({ id: 'l', type: 'leak', t: now - H, amount: 'lots', cause: 'sport', pad: 'yes' }, now), { id: 'l', type: 'leak', t: now - H });
+  assert.deepEqual(sanitizeEntry({ id: 'p', type: 'tablet', t: now - H, note: ' 5 mg ' }, now), { id: 'p', type: 'tablet', t: now - H, note: '5 mg' });
+  assert.equal(sanitizeEntry({ id: 'e', type: 'exercise', t: now - H }, now).type, 'exercise');
+});
+
+test('the new settings fall back to their defaults when out of range', () => {
+  const s = sanitizeSettings({ textSize: 'huge', target: 1800, trainEvery: 100, trainStretch: 20, trainSince: -5, showLeak: 'no' });
+  assert.equal(s.textSize, 'normal'); assert.equal(s.target, 0); assert.equal(s.trainEvery, 0); assert.equal(s.trainStretch, 0);
+  assert.equal(s.trainSince, 0); assert.equal(s.showLeak, true);
+  const ok = sanitizeSettings({ textSize: 'xl', target: 2000, trainEvery: 120, trainStretch: 15, trainSince: 1000, showMarks: false });
+  assert.deepEqual([ok.textSize, ok.target, ok.trainEvery, ok.trainStretch, ok.trainSince, ok.showMarks], ['xl', 2000, 120, 15, 1000, false]);
+});
+
+test('markers and leaks leave the gaps between drinks and passes alone', () => {
+  const t0 = at('2026-10-24T08:00');
+  const g = computeGaps(sortEntries([
+    { id: 'p1', type: 'pass', t: t0 }, { id: 'tab', type: 'tablet', t: t0 + H }, { id: 'l', type: 'leak', t: t0 + 2 * H },
+    { id: 'ex', type: 'exercise', t: t0 + 3 * H }, { id: 'p2', type: 'pass', t: t0 + 4 * H }
+  ]));
+  assert.equal(g.l.pass, 2 * H);
+  assert.equal(g.p2.pass, 4 * H);
+  assert.equal(g.tab, undefined);
+  const days = dailySeries([{ start: startOfDay(t0), items: [{ id: 'tab', type: 'tablet', t: t0 }] }], () => false);
+  assert.equal(days[0].logged, false);
+});
+
+test('trainGap grows by the weekly stretch up to 4 hours', () => {
+  const since = at('2026-10-01T09:00');
+  assert.equal(trainGap({ trainEvery: 0, trainStretch: 15, trainSince: since }, since + 30 * DAY), 0);
+  assert.equal(trainGap({ trainEvery: 120, trainStretch: 0, trainSince: since }, since + 30 * DAY), 120);
+  assert.equal(trainGap({ trainEvery: 120, trainStretch: 15, trainSince: since }, since + 6 * DAY), 120);
+  assert.equal(trainGap({ trainEvery: 120, trainStretch: 15, trainSince: since }, since + 15 * DAY), 150);
+  assert.equal(trainGap({ trainEvery: 180, trainStretch: 30, trainSince: since }, since + 70 * DAY), 240);
+});
+
+test('nextPlannedPass counts from the last pass or waking, and stops after a long quiet spell', () => {
+  const t0 = at('2026-10-24T07:00');
+  const log = sortEntries([{ id: 'w', type: 'wake', t: t0 }, { id: 'd', type: 'drink', t: t0 + H }]);
+  assert.equal(nextPlannedPass(log, t0 + H, 120), t0 + 2 * H);
+  const withPass = sortEntries([...log, { id: 'p', type: 'pass', t: t0 + 90 * 60000 }]);
+  assert.equal(nextPlannedPass(withPass, t0 + 2 * H, 120), t0 + 90 * 60000 + 2 * H);
+  assert.equal(nextPlannedPass(withPass, t0 + 2 * H, 0), null);
+  assert.equal(nextPlannedPass(withPass, t0 + 20 * H, 120), null);
+  assert.equal(nextPlannedPass([{ id: 'd', type: 'drink', t: t0 }], t0 + H, 120), null);
+});
+
+test('lateDrinkNights splits finished evenings by tea, coffee or alcohol after 4 pm', () => {
+  const day = (d) => at(`2026-10-${d}T00:00`), night = (t) => new Date(t).getHours() >= 22 || new Date(t).getHours() < 6;
+  const log = sortEntries([
+    { id: 'a1', type: 'drink', kind: 'teacoffee', t: at('2026-10-20T19:00') }, { id: 'a2', type: 'pass', t: at('2026-10-21T02:00') }, { id: 'a3', type: 'pass', t: at('2026-10-21T04:00') },
+    { id: 'b0', type: 'drink', kind: 'teacoffee', t: at('2026-10-21T10:00') }, { id: 'b1', type: 'drink', kind: 'water', t: at('2026-10-21T19:00') }, { id: 'b2', type: 'pass', t: at('2026-10-22T03:00') },
+    { id: 'c1', type: 'tablet', t: at('2026-10-22T20:00') },
+    { id: 'd1', type: 'drink', kind: 'alcohol', t: at('2026-10-23T21:00') }
+  ]);
+  const r = lateDrinkNights(log, [day(20), day(21), day(22), day(23)], night, at('2026-10-24T10:00'));
+  assert.deepEqual(r, { late: { nights: 1, passes: 2 }, other: { nights: 1, passes: 1 } });
+  const later = lateDrinkNights(log, [day(23)], night, at('2026-10-24T13:00'));
+  assert.deepEqual(later.late, { nights: 1, passes: 0 });
 });

@@ -3,6 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { restoreSample } from './helpers.js';
 
 async function axe(page, view) {
+  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
   const { violations } = await new AxeBuilder({ page }).analyze();
   const summary = violations.map((v) => `${view}: ${v.id} (${v.impact}) ${v.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(', ')}`);
   expect(summary).toEqual([]);
@@ -12,8 +13,11 @@ for (const scheme of ['light', 'dark']) {
   test(`every view passes axe in ${scheme} mode`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme });
     await page.goto('./');
+    await axe(page, 'first-run guide');
     await restoreSample(page);
     await axe(page, 'settings');
+    await page.evaluate(() => document.querySelectorAll('details.sec').forEach((d) => { d.open = true; }));
+    await axe(page, 'settings, every group open');
     await page.locator('[data-close="settingsSheet"]').click();
     for (const r of ['1', '7', '30']) { await page.locator(`[data-range="${r}"]`).click(); await axe(page, `insights ${r}d`); }
     await page.locator('#openReport').click();
@@ -24,6 +28,17 @@ for (const scheme of ['light', 'dark']) {
     await page.locator('#list .row').first().click();
     await axe(page, 'entry sheet');
     await page.locator('#sheetSkip').click();
+    await page.locator('#leakBtn').click();
+    await axe(page, 'leak bar');
+    await page.locator('#bar').getByRole('button', { name: 'More' }).click();
+    await axe(page, 'leak sheet');
+    await page.locator('#sheetSkip').click();
+    await page.locator('#markPill').click();
+    await axe(page, 'tablet and exercise options');
+    await page.locator('#sleepBtn').click();
+    await axe(page, 'bedtime sheet');
+    await page.locator('#bedGo').click();
+    await axe(page, 'sleeping card');
     await page.locator('#list .more').click();
     await axe(page, 'all entries');
   });

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { restoreSample, openSettings } from './helpers.js';
+import { restoreSample, openSettings, openSection } from './helpers.js';
 import { collectKeys } from '../../scripts/check-i18n.mjs';
 
 const LANGS = ['de', 'fr', 'it', 'nl', 'zh', 'es', 'pt'];
@@ -30,7 +30,9 @@ async function everyView(page) {
   await page.locator('#openInsights').click(); await add();
   await page.locator('#openReport').click(); await page.locator('[data-days="7"]').click(); await add();
   await page.locator('[data-close="reportSheet"]').click();
-  await page.locator('#openSettings').click(); await add();
+  await page.locator('#openSettings').click();
+  await page.evaluate(() => document.querySelectorAll('details.sec').forEach((d) => { d.open = true; }));
+  await add();
   await page.locator('[data-close="settingsSheet"]').click();
   await page.locator('[data-close="insightsSheet"]').click();
   return seen;
@@ -40,6 +42,7 @@ test('a flag switches the language straight away and it stays after reload', asy
   await page.goto('./');
   await expect(page.locator('#drinkBtn .word')).toHaveText('Drink');
   await openSettings(page);
+  await openSection(page, 'secDisplay');
   await expect(page.locator('[data-lang="en"]')).toHaveAttribute('aria-pressed', 'true');
   await page.locator('[data-lang="de"]').click();
   await expect(page.locator('[data-lang="de"]')).toHaveAttribute('aria-pressed', 'true');
@@ -92,6 +95,7 @@ test('switching languages shows exactly what a fresh start in that language show
   const shown = async (p) => [...await everyView(p)].filter((s) => !s.startsWith('Entrées :')).sort();
   const expected = await shown(fresh);
 
+  await openSection(page, 'secDisplay');
   await page.locator('[data-lang="de"]').click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'de-DE');
   await page.locator('[data-close="settingsSheet"]').click();
@@ -111,6 +115,7 @@ test.describe('translated sentences keep their own word order', () => {
     await page.clock.setFixedTime(new Date('2026-01-16T23:30:00Z'));
     await page.goto('./');
     await restoreSample(page);
+    await openSection(page, 'secInsights');
     await page.locator('[data-toggle="compare"]').click();
     await page.locator('[data-close="settingsSheet"]').click();
     await expect(page.locator('#tiles .sub').first()).toHaveText(/^Ein −650\s*ml · Aus −500\s*ml ggü\. den 24 Std\. davor$/);
@@ -125,7 +130,7 @@ test.describe('translated sentences keep their own word order', () => {
     await expect(page.locator('#tiles .sub', { hasText: /^\+1 ggü\. den 24 Std\. davor$/ })).toHaveCount(1);
     await page.clock.setFixedTime(new Date('2026-01-18T12:00:00Z'));
     await page.locator('[data-range="3"]').click();
-    await expect(page.locator('#tiles .sub').first()).toHaveText(/^Ein −650\s*ml · Aus −500\s*ml ggü\. den 3 Tagen davor$/);
+    await expect(page.locator('#tiles .sub').first()).toHaveText(/^Ein −650\s*ml · Aus −100\s*ml ggü\. den 3 Tagen davor$/);
     await expect(page.locator('#tiles .sub', { hasText: /^\+1 ggü\. den 3 Tagen davor$/ })).toHaveCount(1);
   });
 });
