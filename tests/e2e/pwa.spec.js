@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { stored, openSettings } from './helpers.js';
+import { stored, openSettings, openSection } from './helpers.js';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -72,9 +72,26 @@ test('a new version waits for the user to tap Update', async ({ page }) => {
   });
 });
 
+test('on a fresh start an update applies by itself and says so', async ({ page }) => {
+  await withRelease(page, async ({ publish }) => {
+    await expect(page.locator('#updatedBar')).toBeHidden();
+    publish('test-next');
+    await Promise.all([page.waitForEvent('load'), checkForUpdate(page)]);
+    await expect(page.locator('#updatedBar')).toBeVisible();
+    await expect(page.locator('#updatedText')).toHaveText(/^Updated to version \d+\.\d+\.\d+\.$/);
+    await expect(page.locator('#updateBar')).toBeHidden();
+    await expect.poll(async () => (await cacheNames(page)).map((k) => k.replace(/-[0-9a-f]+$/, ''))).toEqual(['dp-shell-test-next']);
+    await page.locator('#updatedOk').click();
+    await expect(page.locator('#updatedBar')).toBeHidden();
+    await page.reload();
+    await expect(page.locator('#updatedBar')).toBeHidden();
+  });
+});
+
 test('an update is refused while the server still sends a file from another release, then retried', async ({ page }) => {
   await withRelease(page, async ({ edit, publish }) => {
     const before = await cacheNames(page);
+    await page.keyboard.press('Shift');
     edit('css/app.css', (s) => s + '\n/* previous release */\n');
     publish('test-next');
     await checkForUpdate(page);
@@ -93,6 +110,7 @@ test('Settings shows the version and checks for updates, saying why one didn’t
   const version = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
   await withRelease(page, async ({ edit, publish }) => {
     await openSettings(page);
+    await openSection(page, 'secAbout');
     await expect(page.locator('#appVersion')).toHaveText(`Version ${version}`);
     await page.locator('#checkUpdate').click();
     await expect(page.locator('#updateMsg')).toHaveText('You have the latest version.');

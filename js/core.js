@@ -1,8 +1,8 @@
 // Matches package.json and sw.js; scripts/check-release.mjs enforces it.
-export var APP_VERSION = '1.5.3';
+export var APP_VERSION = '1.6.0';
 export var OZ = 29.5735, H = 3600000, DAY = 86400000, MAX_ML = 5000;
 
-export var VALID_TYPES = ['drink', 'pass', 'solid', 'bed', 'wake'];
+export var VALID_TYPES = ['drink', 'pass', 'solid', 'leak', 'bed', 'wake', 'tablet', 'exercise'];
 export var PRESETS = {
   drink: [['Small', 150], ['Medium', 250], ['Large', 400]],
   pass: [['Small', 100], ['Medium', 250], ['Large', 400]]
@@ -10,10 +10,14 @@ export var PRESETS = {
 export var URG = [['none', 'None'], ['mild', 'Mild'], ['strong', 'Strong'], ['cantwait', 'Couldn’t wait']];
 export var KINDS = [['water', 'Water'], ['teacoffee', 'Tea or coffee'], ['alcohol', 'Alcohol'], ['other', 'Other']];
 export var KINDS_SHORT = [['water', 'Water'], ['teacoffee', 'Tea/coffee'], ['alcohol', 'Alcohol'], ['other', 'Other']];
-export var NAMES = { drink: 'Drink', pass: 'Pass', solid: 'Solid', bed: 'Going to bed', wake: 'Up for the day' };
+export var NAMES = { drink: 'Drink', pass: 'Pass', solid: 'Solid', leak: 'Leak', bed: 'Going to bed', wake: 'Up for the day', tablet: 'Tablet', exercise: 'Pelvic floor exercises' };
+export var LEAK_AMOUNT = [['drops', 'Drops'], ['small', 'Small'], ['large', 'Large']];
+export var LEAK_CAUSE = [['cough', 'Cough or sneeze'], ['urge', 'Urge'], ['moving', 'Moving or lifting'], ['none', 'Nothing']];
 export var BRISTOL = [[1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5'], [6, '6'], [7, '7']];
 
 export function isSleep(x) { return x.type === 'bed' || x.type === 'wake'; }
+/** Sleep, tablet and exercise entries mark a moment; they aren't drinks or output and aren't counted as such. */
+export function isMark(x) { return isSleep(x) || x.type === 'tablet' || x.type === 'exercise'; }
 export function pad(n) { return ('0' + n).slice(-2); }
 export function mins(v) { var p = (v || '0:0').split(':'); return (+p[0]) * 60 + (+p[1]); }
 export function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
@@ -129,8 +133,9 @@ export function isAsleepAt(model, now) {
 export function computeGaps(sorted) {
   var info = {}, lastD = null, lastP = null, lastS = null;
   sorted.forEach(function (x) {
-    if (isSleep(x)) return;
+    if (isMark(x)) return;
     if (x.type === 'solid') { info[x.id] = { solid: lastS !== null ? x.t - lastS : null }; lastS = x.t; return; }
+    if (x.type === 'leak') { info[x.id] = { pass: lastP !== null ? x.t - lastP : null }; return; }
     info[x.id] = { drink: lastD !== null ? x.t - lastD : null, pass: lastP !== null ? x.t - lastP : null };
     if (x.type === 'drink') lastD = x.t; else lastP = x.t;
   });
@@ -157,9 +162,10 @@ export function periodStats(sorted, a, b, isNight) {
  */
 export function fvSummary(days, isNight) {
   var rows = days.map(function (d) {
-    var r = { start: d.start, intakeMl: 0, drinks: 0, passes: 0, nightPasses: 0, outMl: 0, nightMl: 0, sized: 0, maxMl: 0 };
+    var r = { start: d.start, intakeMl: 0, drinks: 0, passes: 0, nightPasses: 0, outMl: 0, nightMl: 0, sized: 0, maxMl: 0, leaks: 0 };
     d.items.forEach(function (x) {
       if (x.type === 'drink') { r.drinks++; if (x.size) r.intakeMl += x.size.ml; }
+      else if (x.type === 'leak') r.leaks++;
       else if (x.type === 'pass') {
         var n = isNight(x.t); r.passes++; if (n) r.nightPasses++;
         if (x.size) { r.sized++; r.outMl += x.size.ml; if (n) r.nightMl += x.size.ml; r.maxMl = Math.max(r.maxMl, x.size.ml); }
@@ -169,13 +175,13 @@ export function fvSummary(days, isNight) {
     return r;
   });
   // Days with nothing logged are usually days the diary wasn't kept, so they don't dilute the average.
-  var kept = rows.filter(function (r) { return r.drinks || r.passes; }), n = kept.length || 1;
+  var kept = rows.filter(function (r) { return r.drinks || r.passes || r.leaks; }), n = kept.length || 1;
   var tot = function (k) { return kept.reduce(function (a, r) { return a + r[k]; }, 0); };
   var sized = tot('sized');
   return {
     rows: rows,
     daysKept: kept.length,
-    average: { intakeMl: tot('intakeMl') / n, passes: tot('passes') / n, nightPasses: tot('nightPasses') / n, outMl: tot('outMl') / n, nightMl: tot('nightMl') / n,
+    average: { intakeMl: tot('intakeMl') / n, passes: tot('passes') / n, leaks: tot('leaks') / n, nightPasses: tot('nightPasses') / n, outMl: tot('outMl') / n, nightMl: tot('nightMl') / n,
       maxMl: Math.max.apply(null, [0].concat(rows.map(function (r) { return r.maxMl; }))), meanMl: sized ? tot('outMl') / sized : 0 }
   };
 }
@@ -194,7 +200,7 @@ export function dailySeries(days, isNight) {
     var rated = passes.filter(function (x) { return x.urgency; }), drinks = d.items.filter(function (x) { return x.type === 'drink' && x.size; });
     var g = []; for (var k = 1; k < passes.length; k++) g.push(passes[k].t - passes[k - 1].t);
     return {
-      start: d.start, logged: d.items.some(function (x) { return !isSleep(x); }),
+      start: d.start, logged: d.items.some(function (x) { return !isMark(x); }),
       gap: g.length ? median(g) : null,
       size: sized.length ? sized.reduce(function (a, x) { return a + x.size.ml; }, 0) / sized.length : null,
       night: passes.length ? passes.filter(function (x) { return isNight(x.t); }).length : null,
@@ -234,8 +240,51 @@ export function drinkReminder(sorted, now, hours, isNight, asleep) {
   return now - since >= hours * H ? { since: since, drank: since === lastDrink } : null;
 }
 
-export var SCHEMA = 2;
-export var DEFAULT_SETTINGS = { unit: 'ml', nightStart: '22:00', nightEnd: '06:00', askSize: true, showUrgency: true, showKind: true, range: 1, dotScale: 'same', trackSolid: false, showBristol: false, compare: false, showToday: true, remindAfter: 0, remindNotify: false, clock: '24', lang: '' };
+/**
+ * The gap bladder training currently aims for, in minutes: the starting gap plus the weekly stretch for each full
+ * week since training started, up to 4 hours. 0 when training is off.
+ */
+export function trainGap(s, now) {
+  if (!s.trainEvery) return 0;
+  var weeks = s.trainSince ? Math.max(0, Math.floor((now - s.trainSince) / (7 * DAY))) : 0;
+  return Math.min(240, s.trainEvery + (s.trainStretch || 0) * weeks);
+}
+/** When the next planned pass is due: `gapMin` after the last pass, or after waking if that was later. Null when nothing recent to go by. */
+export function nextPlannedPass(sorted, now, gapMin) {
+  if (!gapMin) return null;
+  var from = null, lastAny = null;
+  for (var i = sorted.length - 1; i >= 0; i--) {
+    var x = sorted[i]; if (x.t > now) continue;
+    if (lastAny === null) lastAny = x.t;
+    if (x.type === 'pass' || x.type === 'wake') { from = x.t; break; }
+  }
+  if (from === null || now - lastAny > 16 * H) return null;
+  return from + gapMin * 60000;
+}
+/**
+ * Night passes after evenings with and without tea, coffee or alcohol from 4 pm. Each evening runs from 16:00 to
+ * noon the next day; only evenings that are over and have something logged count. `dayStarts` are local midnights.
+ */
+export function lateDrinkNights(sorted, dayStarts, isNight, now) {
+  var out = { late: { nights: 0, passes: 0 }, other: { nights: 0, passes: 0 } };
+  dayStarts.forEach(function (ds) {
+    var d = new Date(ds), a = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 16).getTime(), b = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 12).getTime();
+    if (b > now) return;
+    var items = between(sorted, a, b).filter(function (x) { return !isMark(x); });
+    if (!items.length) return;
+    var late = items.some(function (x) { return x.type === 'drink' && (x.kind === 'teacoffee' || x.kind === 'alcohol') && x.t < a + 8 * H; });
+    var g = late ? out.late : out.other;
+    g.nights++; g.passes += items.filter(function (x) { return x.type === 'pass' && isNight(x.t); }).length;
+  });
+  return out;
+}
+
+export var SCHEMA = 3;
+export var TEXT_SIZES = ['normal', 'large', 'xl'];
+export var TARGETS = [0, 1500, 2000, 2500];
+export var TRAIN_EVERY = [0, 90, 120, 150, 180];
+export var TRAIN_STRETCH = [0, 15, 30];
+export var DEFAULT_SETTINGS = { unit: 'ml', nightStart: '22:00', nightEnd: '06:00', askSize: true, showUrgency: true, showKind: true, range: 1, dotScale: 'same', trackSolid: false, showBristol: false, compare: false, showToday: true, showLeak: true, showMarks: true, remindAfter: 0, remindNotify: false, clock: '24', lang: '', textSize: 'normal', target: 0, trainEvery: 0, trainStretch: 0, trainSince: 0 };
 var SIZE_LABELS = ['small', 'medium', 'large', 'exact'];
 var TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 var EARLIEST = Date.UTC(2000, 0, 1);
@@ -256,6 +305,11 @@ export function sanitizeEntry(x, now) {
   if (x.type === 'drink' && inList(KINDS, x.kind)) e.kind = x.kind;
   if ((x.type === 'pass' || x.type === 'solid') && inList(URG, x.urgency)) e.urgency = x.urgency;
   if (x.type === 'solid' && Number.isInteger(x.bristol) && x.bristol >= 1 && x.bristol <= 7) e.bristol = x.bristol;
+  if (x.type === 'leak') {
+    if (inList(LEAK_AMOUNT, x.amount)) e.amount = x.amount;
+    if (inList(LEAK_CAUSE, x.cause)) e.cause = x.cause;
+    if (x.pad === true) e.pad = true;
+  }
   if (typeof x.note === 'string' && x.note.trim() && x.type !== 'bed' && x.type !== 'wake') e.note = x.note.trim().slice(0, 200);
   if (x.type === 'pass' && typeof x.withSolid === 'string') e.withSolid = x.withSolid;
   if (x.type === 'solid' && typeof x.withPass === 'string') e.withPass = x.withPass;
@@ -269,18 +323,23 @@ export function sanitizeSettings(q, base) {
   if (q.unit === 'ml' || q.unit === 'oz') out.unit = q.unit;
   if (TIME_RE.test(q.nightStart)) out.nightStart = q.nightStart;
   if (TIME_RE.test(q.nightEnd)) out.nightEnd = q.nightEnd;
-  ['askSize', 'showUrgency', 'showKind', 'trackSolid', 'showBristol', 'compare', 'showToday'].forEach(function (k) { if (typeof q[k] === 'boolean') out[k] = q[k]; });
+  ['askSize', 'showUrgency', 'showKind', 'trackSolid', 'showBristol', 'compare', 'showToday', 'showLeak', 'showMarks'].forEach(function (k) { if (typeof q[k] === 'boolean') out[k] = q[k]; });
   if ([0, 1, 3, 7, 14, 30].indexOf(+q.range) > -1) out.range = +q.range;
   if (q.dotScale === 'same' || q.dotScale === 'amount') out.dotScale = q.dotScale;
   if ([0, 2, 3, 4].indexOf(+q.remindAfter) > -1) out.remindAfter = +q.remindAfter;
   if (typeof q.remindNotify === 'boolean') out.remindNotify = q.remindNotify;
   if (q.clock === '24' || q.clock === '12') out.clock = q.clock;
   if (typeof q.lang === 'string' && /^([a-z]{2})?$/.test(q.lang)) out.lang = q.lang;
+  if (TEXT_SIZES.indexOf(q.textSize) > -1) out.textSize = q.textSize;
+  if (TARGETS.indexOf(+q.target) > -1) out.target = +q.target;
+  if (TRAIN_EVERY.indexOf(+q.trainEvery) > -1) out.trainEvery = +q.trainEvery;
+  if (TRAIN_STRETCH.indexOf(+q.trainStretch) > -1) out.trainStretch = +q.trainStretch;
+  if (typeof q.trainSince === 'number' && isFinite(q.trainSince) && q.trainSince >= 0) out.trainSince = q.trainSince;
   return out;
 }
 /**
  * Brings a stored or restored log up to the current schema.
- * Schema 1 had no stool tracking; schema 2 added `solid` entries and pass/solid links.
+ * Schema 1 had no stool tracking; schema 2 added `solid` entries and pass/solid links; schema 3 added leaks, tablets and exercises.
  * Returns the cleaned entries and how many had to be dropped.
  */
 export function migrateLog(list, fromSchema, now) {
@@ -306,11 +365,11 @@ export function csvCell(v) {
   return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
 }
 export function toCsv(entries, isNight) {
-  var lines = ['date,time,type,drink_type,size,ml,night,urgency,bristol,note'];
+  var lines = ['date,time,type,drink_type,size,ml,night,urgency,bristol,leak_amount,leak_cause,pad_changed,note'];
   entries.forEach(function (x) {
     var dt = new Date(x.t);
     var ts = pad(dt.getHours()) + ':' + pad(dt.getMinutes());
-    lines.push([isoDate(x.t), ts, x.type, x.kind || '', x.size ? x.size.label : '', x.size ? Math.round(x.size.ml) : '', x.type === 'pass' ? (isNight(x.t) ? 'yes' : 'no') : '', x.urgency || '', x.bristol || '', csvCell(x.note)].join(','));
+    lines.push([isoDate(x.t), ts, x.type, x.kind || '', x.size ? x.size.label : '', x.size ? Math.round(x.size.ml) : '', x.type === 'pass' ? (isNight(x.t) ? 'yes' : 'no') : '', x.urgency || '', x.bristol || '', x.amount || '', x.cause || '', x.pad ? 'yes' : '', csvCell(x.note)].join(','));
   });
   return lines.join('\n');
 }

@@ -11,6 +11,12 @@ export async function openSettings(page) {
   await page.locator('#openSettings').click();
 }
 
+/** Opens a collapsed group in Settings, such as `secLogging`, unless it's already open. */
+export async function openSection(page, id) {
+  const sec = page.locator('#' + id);
+  if (!(await sec.evaluate((d) => d.open))) await sec.locator('summary').click();
+}
+
 export async function restoreSample(page) {
   await openSettings(page);
   await page.locator('#restoreFile').setInputFiles(SAMPLE_BACKUP);

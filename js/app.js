@@ -1,6 +1,6 @@
 import {
-  OZ, DAY, PRESETS, URG, KINDS, KINDS_SHORT, NAMES, BRISTOL,
-  isSleep, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime as fmtTimeIn, fmtHour, fmtDur as fmtDurIn, agoText as agoTextIn, toLocalInput,
+  OZ, DAY, PRESETS, URG, KINDS, KINDS_SHORT, NAMES, BRISTOL, LEAK_AMOUNT, LEAK_CAUSE, trainGap, nextPlannedPass, lateDrinkNights,
+  isSleep, isMark, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime as fmtTimeIn, fmtHour, fmtDur as fmtDurIn, agoText as agoTextIn, toLocalInput,
   sortEntries, isoDate, between, sleepModel, sanitizeSettings, migrateLog, DEFAULT_SETTINGS, SCHEMA, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
   fmtVol as fmtVolIn
   , fvSummary, drinkReminder, lastClockTime, APP_VERSION, clockFraction, clockSlot, dayOffsetOf, MAX_ML, dailySeries, rolling, trendEnds
@@ -15,7 +15,7 @@ var NS = 'http://www.w3.org/2000/svg';
 var log = [], settings = sanitizeSettings(null), bk = { last: 0, snooze: 0, done: 0 }, trash = [], lastTap = {}, barRestore = null, barStash = null;
 function isStandalone() { try { return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true; } catch (e) { return false; } }
 var idb = null, recoveryPending = null, snapCache = [], mirrorTimer = null, lastSnapAt = 0, persistTried = false, pendingRestore = null;
-var loadProblem = false, storageOk = true, whenMode = 'now', dayOffset = 0, reportDays = 1, rangeDays = 1;
+var loadProblem = false, storageOk = true, whenMode = 'now', dayOffset = 0, reportDays = 1, reportEnd = 0, rangeDays = 1;
 var sheetId = null, barId = null, barTimer = null, sleep = { periods: [], markers: [], last: null };
 var $ = function (id) { return document.getElementById(id); };
 var each = function (sel, fn) { Array.prototype.forEach.call(document.querySelectorAll(sel), fn); };
@@ -142,18 +142,25 @@ function ripple(btn, ev) {
   btn.appendChild(s); setTimeout(function () { if (s.parentNode) s.parentNode.removeChild(s); }, 700);
 }
 
-function addEntry(type, ev) {
+/** The size the last drink or pass had, so a new one starts from it; Medium before there is one. */
+function startSize(type) {
+  var s = sorted();
+  for (var i = s.length - 1; i >= 0; i--) if (s[i].type === type && s[i].size) return { label: s[i].size.label, ml: s[i].size.ml };
+  return { label: 'medium', ml: PRESETS[type][1][1] };
+}
+function addEntry(type, ev, quick) {
   // Bed and wake share one key: the moon turns into the sun after the first tap, so a double tap would log both.
   var tapNow = Date.now(), tapKey = isSleep({ type: type }) ? 'sleep' : type;
   if (lastTap[tapKey] && tapNow - lastTap[tapKey] < 1500) { if (barId) $('barMsg').textContent = t('Already logged. Tap Undo if that was a mistake.'); return; }
   lastTap[tapKey] = tapNow; barStash = null; tryPersist();
   var at = getWhen();
   var entry = { id: Date.now() + '-' + Math.random().toString(36).slice(2, 7), type: type, t: at };
+  if (type === 'drink' || type === 'pass') entry.size = startSize(type);
   log.push(entry); save();
   dayOffset = Math.min(0, dayOffsetOf(at));
   setWhen('now');
   render();
-  showBar(entry);
+  showBar(entry, false, quick);
   if (type === 'drink' || type === 'pass') ripple($(type === 'drink' ? 'drinkBtn' : 'passBtn'), ev);
   if (navigator.vibrate) { try { navigator.vibrate(15); } catch (e) {} }
 }
@@ -183,7 +190,7 @@ function renderTrash() {
 function gaps() { if (!gapsCache) gapsCache = computeGaps(sorted()); return gapsCache; }
 function gapLine(x, g) {
   if (x.type === 'solid') return (g.solid !== null && g.solid !== undefined && g.solid < 3 * DAY) ? t('{d} since last solid', { d: fmtDur(g.solid) }) : t('No solid in the previous 3 days');
-  if (x.type === 'pass') return (g.pass !== null && g.pass < DAY) ? t('{d} after last pass', { d: fmtDur(g.pass) }) : t('No pass in the previous 24 h');
+  if (x.type === 'pass' || x.type === 'leak') return (g.pass !== null && g.pass < DAY) ? t('{d} after last pass', { d: fmtDur(g.pass) }) : t('No pass in the previous 24 h');
   return (g.drink !== null && g.drink < DAY) ? t('{d} since last drink', { d: fmtDur(g.drink) }) : t('No drink in the previous 24 h');
 }
 function sizeText(x) { return x.size ? (x.size.label === 'exact' ? t('Exact') : t(cap(x.size.label))) + ' · ' + fmtVol(x.size.ml) : ''; }
@@ -200,6 +207,7 @@ function sleptText(x) {
 function detailParts(x, g) {
   var p = [];
   if (x.type === 'drink' && x.kind) p.push(t(labelOf(KINDS, x.kind)));
+  if (x.type === 'leak') p = p.concat(leakParts(x));
   if (x.size) p.push(sizeText(x));
   p.push(gapLine(x, g));
   if (x.type === 'solid' && x.bristol) p.push(t('Bristol {n}', { n: x.bristol }));
@@ -209,6 +217,15 @@ function detailParts(x, g) {
 }
 
 function urgText(u) { return t('urgency: {u}', { u: low(t(labelOf(URG, u))) }); }
+function leakParts(e) {
+  var p = [];
+  if (e.amount) p.push(t(labelOf(LEAK_AMOUNT, e.amount)));
+  if (e.cause) p.push(t(labelOf(LEAK_CAUSE, e.cause)));
+  if (e.pad) p.push(t('Pad changed'));
+  return p;
+}
+function leakText(e) { return leakParts(e).join(' · '); }
+var MARK_ICONS = { bed: 'i-moon', wake: 'i-sun', tablet: 'i-pill', exercise: 'i-flex' };
 function buildOptions(box, list, current, onPick) {
   box.textContent = '';
   list.forEach(function (u) {
@@ -235,22 +252,28 @@ function toggler(field, linked) {
 function openSheet(entry, keepTime) {
   hideBar();
   sheetId = entry.id;
-  var sl = isSleep(entry), solid = entry.type === 'solid', label = name(entry.type), g = (gaps()[entry.id]) || {};
+  var sl = isSleep(entry), mark = isMark(entry), solid = entry.type === 'solid', leak = entry.type === 'leak', label = name(entry.type), g = (gaps()[entry.id]) || {};
   var tv = { what: label, time: fmtTime(entry.t) };
   $('sheetTitle').textContent = entry.type === 'pass' && isNight(entry.t) ? t('{what} at {time} (night)', tv) : t('{what} at {time}', tv);
   var info = [];
-  if (sl) { var sp = entry.type === 'wake' ? sleptText(entry) : ''; if (sp) info.push(sp); }
+  if (mark) { var sp = entry.type === 'wake' ? sleptText(entry) : ''; if (sp) info.push(sp); }
   else {
     info = detailParts(entry, g).filter(function (q) { return q !== 'note'; });
     if (entry.type === 'pass' && g.drink !== null && g.drink < DAY) info.push(t('{d} after last drink', { d: fmtDur(g.drink) }));
   }
   $('sheetInfo').textContent = info.join(' · '); $('sheetInfo').hidden = !info.length;
 
-  var hasUrg = entry.type === 'pass' || solid;
-  $('sizeSec').hidden = sl || solid; $('kindSec').hidden = entry.type !== 'drink' || !settings.showKind;
+  var hasUrg = entry.type === 'pass' || solid, hasSize = entry.type === 'drink' || entry.type === 'pass';
+  $('sizeSec').hidden = !hasSize; $('kindSec').hidden = entry.type !== 'drink' || !settings.showKind;
   $('urgSec').hidden = !hasUrg || !settings.showUrgency; $('bristolSec').hidden = !solid || !settings.showBristol; $('noteSec').hidden = sl;
+  $('leakSec').hidden = !leak;
   $('timeRow').hidden = !keepTime; $('timeInput').value = toLocalInput(entry.t);
-  if (!sl && !solid) {
+  if (leak) {
+    buildOptions($('amountBtns'), LEAK_AMOUNT, entry.amount, toggler('amount'));
+    buildOptions($('causeBtns'), LEAK_CAUSE, entry.cause, toggler('cause'));
+    $('padBtn').setAttribute('aria-pressed', entry.pad ? 'true' : 'false');
+  }
+  if (hasSize) {
     $('presets').hidden = false; $('exactToggle').hidden = false; $('exactRow').hidden = true;
     var box = $('presets'); box.textContent = '';
     PRESETS[entry.type].forEach(function (p) {
@@ -291,7 +314,8 @@ function lastKind(exceptId) {
 function partner(e) { if (!e) return null; if (e.withSolid) return find(e.withSolid); if (e.withPass) return find(e.withPass); return null; }
 function whatMode(e) { if (e.type === 'solid') return 'solid'; return (e.withSolid && find(e.withSolid)) ? 'both' : 'water'; }
 function rowsAsked(e) {
-  var r = []; if (isSleep(e)) return r;
+  var r = []; if (isMark(e)) return r;
+  if (e.type === 'leak') return ['amount', 'cause'];
   var m = (e.type === 'pass' || e.type === 'solid') ? whatMode(e) : null;
   if (m === 'solid') { if (settings.showUrgency) r.push('urg'); if (settings.showBristol) r.push('bristol'); return r; }
   if (settings.askSize !== false) r.push('size');
@@ -301,9 +325,10 @@ function rowsAsked(e) {
   return r;
 }
 function bristolOf(e) { var t = e.type === 'solid' ? e : partner(e); return t ? t.bristol : undefined; }
-function answered(e, k) { return k === 'size' ? !!e.size : k === 'kind' ? !!e.kind : k === 'bristol' ? !!bristolOf(e) : !!e.urgency; }
+function answered(e, k) { return k === 'size' ? !!e.size : k === 'kind' ? !!e.kind : k === 'bristol' ? !!bristolOf(e) : k === 'amount' || k === 'cause' ? !!e[k] : !!e.urgency; }
 function barSummary(e) {
   var p = [];
+  if (e.type === 'leak') return leakText(e);
   if (e.size) p.push(sizeText(e));
   if (e.kind) p.push(t(labelOf(KINDS, e.kind)));
   if (bristolOf(e)) p.push(t('Bristol {n}', { n: bristolOf(e) }));
@@ -383,12 +408,21 @@ function whatRow() {
   modes.forEach(function (q) { var b = document.createElement('button'); b.type = 'button'; b.textContent = q[1]; b.addEventListener('click', function () { setWhat(q[0]); }); grid.appendChild(b); });
   paint(); wrap.appendChild(l); wrap.appendChild(grid); return wrap;
 }
-function showBar(entry, rebuilt) {
+function padRow() {
+  var grid = barGrid('opts'), b = document.createElement('button'); b.type = 'button'; b.textContent = t('Pad changed');
+  function paint() { var e = find(barId); b.setAttribute('aria-pressed', e && e.pad ? 'true' : 'false'); }
+  b.addEventListener('click', function () { var e = find(barId); if (!e) return; if (e.pad) delete e.pad; else e.pad = true; save(); renderList(); paint(); checkBar(e, false); });
+  grid.style.gridTemplateColumns = '1fr'; grid.appendChild(b); grid.style.marginTop = '8px'; paint(); return grid;
+}
+function showBar(entry, rebuilt, quick) {
   barId = entry.id; barRestore = null; $('barMore').hidden = false;
-  var asked = rowsAsked(entry), rows = $('barRows'); rows.textContent = '';
+  var asked = quick ? [] : rowsAsked(entry), rows = $('barRows'); rows.textContent = '';
   if (!rebuilt && entry.type === 'drink' && settings.showKind && !entry.kind) { var lk = lastKind(entry.id); if (lk) { entry.kind = lk; save(); renderList(); } }
   var m = (entry.type === 'pass' || entry.type === 'solid') ? whatMode(entry) : null;
-  $('barMsg').textContent = t('{what} logged · {time}', { what: m === 'both' ? t('Pass and solid') : name(entry.type), time: fmtTime(entry.t) });
+  $('barMsg').textContent = t('{what} logged · {time}', { what: m === 'both' ? t('Pass and solid') : name(entry.type), time: fmtTime(entry.t) }) + (quick && entry.size ? ' · ' + fmtVol(entry.size.ml) : '');
+  if (quick) { $('bar').hidden = false; armBar(3000); return; }
+  if (asked.indexOf('amount') > -1) rows.appendChild(optRow(t('How much'), LEAK_AMOUNT, 'amount', entry, 3));
+  if (asked.indexOf('cause') > -1) { rows.appendChild(optRow(t('What set it off'), LEAK_CAUSE, 'cause', entry, 4)); rows.appendChild(padRow()); }
   if (settings.trackSolid && m) rows.appendChild(whatRow());
   if (asked.indexOf('size') > -1) rows.appendChild(sizeRow(entry));
   if (asked.indexOf('kind') > -1) rows.appendChild(optRow(t('Type'), KINDS_SHORT, 'kind', entry));
@@ -410,14 +444,30 @@ function renderStats() {
   var lp = s.filter(function (x) { return x.type === 'pass'; }).pop();
   $('drinkSub').textContent = ld ? cap(agoText(ld.t)) : t('Not yet');
   $('passSub').textContent = lp ? cap(agoText(lp.t)) : t('Not yet');
-  $('todayStrip').hidden = settings.showToday === false;
-  var today = startOfDay(Date.now()), td = s.filter(function (x) { return x.t >= today; });
+  var asleep = isAsleep(), now = Date.now();
+  $('leakBtn').hidden = !settings.showLeak; $('markPill').hidden = !settings.showMarks;
+  if (!settings.showMarks) toggleMarks(false);
+  $('todayStrip').hidden = settings.showToday === false || asleep;
+  $('sleepCard').hidden = !asleep;
+  if (asleep) {
+    var bed = sleep.last.t, np = s.filter(function (x) { return x.type === 'pass' && x.t >= bed; }).length;
+    $('sleepSince').textContent = t('Sleeping since {time}', { time: fmtTime(bed) });
+    $('sleepPasses').textContent = tn(np, '{n} night pass so far', '{n} night passes so far');
+  }
+  var today = startOfDay(now), td = s.filter(function (x) { return x.t >= today; });
   var tin = sum(td.filter(function (x) { return x.type === 'drink'; })), passes = td.filter(function (x) { return x.type === 'pass'; }), tout = sum(passes);
   $('tdIn').textContent = tin[1] ? fmtVol(tin[0]) : '–';
   $('tdOut').textContent = tout[1] ? fmtVol(tout[0]) : '–';
   $('tdPasses').textContent = passes.length.toLocaleString(currentLocale());
-  $('tdSince').textContent = lp ? fmtDur(Math.max(0, Date.now() - lp.t)) : '–';
+  $('tdInBar').hidden = !settings.target;
+  if (settings.target) $('tdInFill').style.width = Math.min(100, tin[0] / settings.target * 100) + '%';
+  var next = plannedPass(now);
+  $('tdSinceL').hidden = !!next; $('tdNextL').hidden = !next;
+  $('tdSince').textContent = next ? (next <= now ? t('Now') : fmtTime(next)) : lp ? fmtDur(Math.max(0, now - lp.t)) : '–';
 }
+/** The next planned pass while bladder training is on, or null. */
+function plannedPass(now) { return nextPlannedPass(sorted(), now, trainGap(settings, now)); }
+function todayIntake() { var today = startOfDay(Date.now()); return sum(sorted().filter(function (x) { return x.type === 'drink' && x.t >= today; }))[0]; }
 
 var ROW_H = 56, MORE_H = 46;
 function fmtWhen(ms) {
@@ -425,11 +475,11 @@ function fmtWhen(ms) {
   return startOfDay(ms) === startOfDay(Date.now()) ? tm : fmtDate(ms, { weekday: 'short' }) + ' ' + tm;
 }
 function buildRow(x, info, withDay) {
-  var sl = isSleep(x);
+  var sl = isMark(x);
   var b = document.createElement('button'); b.type = 'button'; b.className = 'row';
   var mk = document.createElement('span'); mk.className = 'mark';
-  if (sl) mk.appendChild(svgIcon(x.type === 'bed' ? 'i-moon' : 'i-sun', 14));
-  else { var dot = document.createElement('span'); dot.className = 'dot ' + x.type + (x.size || x.type === 'solid' ? '' : ' ns'); mk.appendChild(dot); }
+  if (sl) mk.appendChild(svgIcon(MARK_ICONS[x.type], 14));
+  else { var dot = document.createElement('span'); dot.className = 'dot ' + x.type + (x.size || x.type === 'solid' || x.type === 'leak' ? '' : ' ns'); mk.appendChild(dot); }
   var tm = document.createElement('span'); tm.className = 'time'; tm.textContent = withDay ? fmtWhen(x.t) : fmtTime(x.t);
   var wh = document.createElement('span'); wh.className = 'what' + (sl ? ' soft' : '');
   wh.appendChild(document.createTextNode(x.type === 'pass' ? nightly(name(x.type), x.t) : name(x.type)));
@@ -437,12 +487,17 @@ function buildRow(x, info, withDay) {
   if (x.type === 'drink' && x.kind) tag(t(labelOf(KINDS, x.kind)));
   if ((x.type === 'pass' || x.type === 'solid') && x.urgency && x.urgency !== 'none') tag(t(labelOf(URG, x.urgency)));
   if (x.type === 'solid' && x.bristol) tag(t('Bristol {n}', { n: x.bristol }));
+  if (x.type === 'leak') leakParts(x).forEach(tag);
   if (x.note) tag(t('Note'));
   var sm = null;
   if (sl) { var st = x.type === 'wake' ? sleptText(x) : ''; if (st) { sm = document.createElement('small'); sm.textContent = st; } }
   else {
     sm = document.createElement('small');
     if (x.type === 'solid') sm.textContent = gapLine(x, info[x.id]);
+    else if (x.type === 'leak') {
+      if (!x.amount) { var ad = document.createElement('span'); ad.className = 'addsize'; ad.textContent = t('Add details'); sm.appendChild(ad); sm.appendChild(document.createTextNode(' · ')); }
+      sm.appendChild(document.createTextNode(gapLine(x, info[x.id])));
+    }
     else if (x.size) sm.textContent = sizeText(x) + ' · ' + gapLine(x, info[x.id]);
     else { var a = document.createElement('span'); a.className = 'addsize'; a.textContent = t('Add size'); sm.appendChild(a); sm.appendChild(document.createTextNode(' · ' + gapLine(x, info[x.id]))); }
   }
@@ -457,17 +512,34 @@ function renderLatest() {
   var today = startOfDay(Date.now());
   $('todayCount').textContent = t('{n} today', { n: s.filter(function (x) { return x.t >= today; }).length });
   wrap.textContent = '';
-  if (!s.length) {
-    var e = document.createElement('div'); e.className = 'empty';
-    e.textContent = t('Tap a button when it happens. We work out the time between drinks and passes for you.');
-    wrap.appendChild(e); return;
-  }
+  if (!s.length) { wrap.appendChild(guide()); return; }
   var h = wrap.clientHeight, n = Math.max(2, Math.min(5, Math.floor((h - MORE_H) / ROW_H)));
   s.slice(0, n).forEach(function (x) { wrap.appendChild(buildRow(x, info, true)); });
   var m = document.createElement('button'); m.type = 'button'; m.className = 'more';
   m.appendChild(document.createTextNode(tn(s.length, '{n} entry', 'All {n} entries'))); m.appendChild(svgIcon('i-right', 16));
   m.addEventListener('click', function () { dayOffset = 0; renderLog(); showOverlay('logSheet'); });
   wrap.appendChild(m);
+}
+var installPrompt = null;
+window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); installPrompt = e; renderList(); });
+function guide() {
+  var g = el('div', 'guide'), ol = el('ol');
+  g.appendChild(el('h3', '', t('Getting started')));
+  [t('Tap Drink or Pass each time. The size you used last is filled in, and you can change it.'),
+    t('Hold Drink or Pass to log without the questions.'),
+    t('Tap the moon when you go to bed, so passes in the night are counted as night passes.')].forEach(function (s) { ol.appendChild(el('li', '', s)); });
+  g.appendChild(ol);
+  if (!isStandalone()) {
+    var row = el('div', 'setrow'), b = el('button', 'btn primary', t('Install the app')), tip = el('p', 'hint');
+    b.type = 'button'; b.id = 'installBtn'; tip.hidden = true;
+    b.addEventListener('click', function () {
+      if (installPrompt) { var p = installPrompt; installPrompt = null; p.prompt(); return; }
+      tip.textContent = t('To install: in Safari tap Share, then Add to Home Screen. In Chrome open the menu and choose Install app. Restore your backup from inside the installed app, because the browser tab and the installed app keep separate storage on iPhone.');
+      tip.hidden = false;
+    });
+    row.appendChild(b); g.appendChild(row); g.appendChild(tip);
+  }
+  return g;
 }
 function renderLog() {
   var r = dayRange(dayOffset), s = sorted(), info = gaps();
@@ -513,7 +585,7 @@ function svgEl(tag, attrs, parent) {
   return e;
 }
 /** Daily dots and the 7-day median line; `big` adds the middle-half band, value lines and dates. */
-function trendSvg(series, m, w, h, big) {
+function trendSvg(series, m, w, h, big, marks) {
   var roll = rolling(series, m.key), n = series.length, padX = big ? 6 : 3, top = big ? 14 : 3, bottom = big ? 18 : 3;
   var vals = [];
   series.forEach(function (r, i) { if (r[m.key] !== null) vals.push(r[m.key]); if (big && roll[i]) vals.push(roll[i].lo, roll[i].hi); });
@@ -535,6 +607,10 @@ function trendSvg(series, m, w, h, big) {
   });
   series.forEach(function (r, i) { if (r[m.key] !== null) svgEl('circle', { class: 'pd', cx: x(i).toFixed(1), cy: y(r[m.key]).toFixed(1), r: big ? 2.4 : 1.8 }, svg); });
   segs.forEach(function (sg) { svgEl('path', { class: 'pl', d: 'M' + sg.map(function (q) { return q[0].toFixed(1) + ' ' + y(q[1].med).toFixed(1); }).join(' L') }, svg); });
+  (marks || []).forEach(function (mk) {
+    var i = series.filter(function (r) { return r.start <= mk.t; }).length - 1;
+    if (i >= 0) svgEl('line', { class: 'pmk ' + mk.type, x1: x(i).toFixed(1), x2: x(i).toFixed(1), y1: top, y2: h - bottom }, svg);
+  });
   if (big) {
     [lo, (lo + hi) / 2, hi].forEach(function (v) { svgEl('text', { class: 'pax', x: padX, y: (y(v) - 3).toFixed(1) }, svg).textContent = m.fmt(v); });
     [0, 1, 2, 3].forEach(function (j) {
@@ -547,7 +623,11 @@ function trendSvg(series, m, w, h, big) {
 function renderProgress(tiles, section, series) {
   var logged = series.filter(function (r) { return r.logged; }).length, rows = [];
   TRENDS.forEach(function (m) { var e = trendEnds(series, m.key); if (e) rows.push({ m: m, e: e }); });
-  var box = el('div', 'tile wide prog');
+  var box = el('div', 'tile wide prog'), s = sorted(), marks = [];
+  [['tablet', k('First tablet')], ['exercise', k('First pelvic floor exercises')]].forEach(function (q) {
+    var f = s.filter(function (x) { return x.type === q[0]; })[0];
+    if (f && f.t >= series[0].start) marks.push({ type: q[0], t: f.t, label: q[1] });
+  });
   if (logged < 10) {
     section(t('Progress'), 'var(--ink)', '');
     box.appendChild(el('div', 'sub', tn(10 - logged, 'Log on {n} more day to see how things change.', 'Log on {n} more days to see how things change.')));
@@ -564,11 +644,12 @@ function renderProgress(tiles, section, series) {
     b.appendChild(val); b.appendChild(trendSvg(series, m, 104, 34, false));
     var det = el('div', 'pdet'); det.id = id; det.hidden = !open;
     if (open) {
-      var big = trendSvg(series, m, 320, 140, true); big.setAttribute('role', 'img'); big.removeAttribute('aria-hidden');
+      var big = trendSvg(series, m, 320, 140, true, marks); big.setAttribute('role', 'img'); big.removeAttribute('aria-hidden');
       big.setAttribute('aria-label', t('{what} each day, with a 7-day median line', { what: t(m.label) }));
       det.appendChild(big);
       var lg = el('div', 'legend plg');
       [['pdk', t('Each day')], ['plk', t('7-day median')], ['pbk', t('Middle half of days')], ['puk', t('Not logged')]].forEach(function (q) { var sp = el('span'); sp.appendChild(el('i', q[0] + ' ' + m.cls)); sp.appendChild(document.createTextNode(q[1])); lg.appendChild(sp); });
+      marks.forEach(function (mk) { var sp = el('span'); sp.appendChild(el('i', 'mk mk-' + mk.type)); sp.appendChild(document.createTextNode(t(mk.label) + ' · ' + fmtDate(mk.t, { day: 'numeric', month: 'short' }))); lg.appendChild(sp); });
       det.appendChild(lg);
     }
     b.addEventListener('click', function () { progressOpen = open ? null : m.key; renderInsights(); var again = document.querySelector('[aria-controls="' + id + '"]'); if (again) again.focus(); });
@@ -589,11 +670,11 @@ function renderInsights() {
   var rangeItems = [], passes = [], passFlags = [], vols = [], nightPasses = 0, withData = 0, inMl = 0, inC = 0, outMl = 0, outC = 0, dayIn = [], dayOut = [], dayPasses = [];
   function mk(x, cls, left, cy, base) {
     var size = (x.size && amount) ? Math.max(5, Math.min(solidLane ? 9 : 13, Math.round(5 + x.size.ml / 400 * 7))) : base;
-    var noSize = !x.size && x.type !== 'solid';
+    var noSize = !x.size && (x.type === 'drink' || x.type === 'pass');
     if (noSize) anyNoSize = true;
     var d = document.createElement('button'); d.type = 'button'; d.className = 'd ' + cls + (noSize ? ' ns' : '');
     d.setAttribute('data-id', x.id);
-    d.setAttribute('aria-label', t('{what} at {time}', { what: name(x.type), time: fmtTime(x.t) }) + (x.size ? ', ' + fmtVol(x.size.ml) : (x.type === 'solid' ? '' : ', ' + t('no size'))) + '. ' + t('Open details'));
+    d.setAttribute('aria-label', t('{what} at {time}', { what: name(x.type), time: fmtTime(x.t) }) + (x.size ? ', ' + fmtVol(x.size.ml) : (noSize ? ', ' + t('no size') : '')) + '. ' + t('Open details'));
     d.addEventListener('click', function () { openSheet(x); });
     d.style.width = d.style.height = size + 'px'; d.style.marginLeft = (-size / 2) + 'px'; d.style.left = left + '%'; d.style.top = (cy - size / 2) + 'px';
     plot.appendChild(d); return d;
@@ -606,10 +687,11 @@ function renderInsights() {
       d.style.left = (sg[0] / count * 100) + '%'; d.style.width = ((sg[1] - sg[0]) / count * 100) + '%'; d.style.top = '0'; d.style.height = '100%'; plot.appendChild(d);
     });
     var items = between(s, start, now + 1);
-    rangeItems = items.filter(function (x) { return !isSleep(x); });
+    rangeItems = items.filter(function (x) { return !isMark(x); });
     items.forEach(function (x) {
       var pos = Math.max(1, Math.min(99, (x.t - start) / DAY * 100));
       if (isSleep(x)) { var tk = document.createElement('div'); tk.className = 'tick'; tk.style.left = pos + '%'; plot.appendChild(tk); return; }
+      if (isMark(x)) return;
       mk(x, x.type, pos, solidLane ? (x.type === 'drink' ? 16 : x.type === 'solid' ? 42 : 68) : (x.type === 'drink' ? 22 : 62), 10);
       if (x.type === 'pass') { passes.push(x.t); var nn = isNight(x.t); passFlags.push(nn); if (nn) nightPasses++; if (x.size) { vols.push(x.size.ml); outMl += x.size.ml; outC++; } }
       else if (x.type === 'drink' && x.size) { inMl += x.size.ml; inC++; }
@@ -633,7 +715,7 @@ function renderInsights() {
       (function (i) {
         var off = -(span - 1 - i), r = dayRange(off), ds = r[0];
         if (i === 0) firstStart = ds;
-        var items = between(s, r[0], r[1]).filter(function (x) { return !isSleep(x); });
+        var items = between(s, r[0], r[1]).filter(function (x) { return !isMark(x); });
         seriesDays.push({ start: ds, items: items });
         if (items.length) withData++;
         Array.prototype.push.apply(rangeItems, items);
@@ -666,6 +748,7 @@ function renderInsights() {
   var lg = $('legend'); lg.textContent = '';
   function li(cls, style, txt) { var sp = el('span'); var i = el('i', cls); if (style) i.style.cssText = style; sp.appendChild(i); sp.appendChild(document.createTextNode(txt)); lg.appendChild(sp); }
   li('', 'background:var(--drink)', t('Drink')); li('', 'background:var(--pass)', t('Pass')); if (solidLane) li('solidkey', '', t('Solid')); li('band', '', t('Night'));
+  if (rangeItems.some(function (x) { return x.type === 'leak'; })) li('leakkey', '', t('Leak'));
   if (anyNoSize) li('ring', '', t('No size'));
   if (amount) { var sp2 = el('span'); [6, 9, 12].forEach(function (z) { var i = el('i'); i.style.cssText = 'background:var(--muted);width:' + z + 'px;height:' + z + 'px'; sp2.appendChild(i); }); sp2.appendChild(document.createTextNode(t('Bigger dot, bigger amount'))); lg.appendChild(sp2); }
 
@@ -732,6 +815,10 @@ function renderInsights() {
       if (irritant) io.appendChild(el('div', 'insnote', t('Tea, coffee and alcohol were {p}% of what you drank. Caffeine and alcohol can irritate the bladder.', { p: Math.round(irritant / kindMl * 100) })));
     }
   }
+  if (settings.target && multi && inC) {
+    var met = dayIn.filter(function (v) { return v >= settings.target; }).length;
+    io.appendChild(el('div', 'sub', t('Your target of {v} was reached on {a} of {b} days with drinks.', { v: fmtVol(settings.target), a: met, b: dayIn.filter(function (v) { return v > 0; }).length })));
+  }
   function avgOf(ml, n) { return multi ? (n ? ml / n : 0) : ml; }
   if (cmp) {
     if (cmp.prev.outN || cmp.prev.inN) {
@@ -756,6 +843,8 @@ function renderInsights() {
     gt.appendChild(el('div', 'sub', t('Longest {d}', { d: fmtDur(Math.max.apply(null, gp)) })));
   }
   if (cmp && cmp.cur.med !== null && cmp.prev.med !== null) gt.appendChild(el('div', 'sub', cmp.vs(signed(cmp.cur.med - cmp.prev.med, fmtDur))));
+  var plan = trainGap(settings, Date.now());
+  if (plan) gt.appendChild(el('div', 'sub', t('Planned gap {d}', { d: fmtDur(plan * 60000) })));
   tiles.appendChild(gt);
 
   var nt = tile(multi ? t('Night passes, per night') : t('Night passes'));
@@ -771,7 +860,15 @@ function renderInsights() {
     nt.appendChild(el('div', 'sub', t('{a} of {b} passes at night', { a: nightPasses, b: passes.length })));
   }
   if (cmp && cmp.prev.passes.length) nt.appendChild(el('div', 'sub', cmp.vs(signed(cmp.cur.night - cmp.prev.night, String))));
+  var lateNote = null;
+  if (all || rangeDays >= 7) {
+    var ln = lateDrinkNights(s, seriesDays.map(function (d) { return d.start; }), isNight, Date.now());
+    if (ln.late.nights >= 3 && ln.other.nights >= 3) {
+      lateNote = el('div', 'insnote wide', t('After tea, coffee or alcohol from 4 pm, you passed {a} times a night. On other nights, {b}.', { a: num(ln.late.passes / ln.late.nights), b: num(ln.other.passes / ln.other.nights) }));
+    }
+  }
   tiles.appendChild(nt);
+  if (lateNote) tiles.appendChild(lateNote);
 
   var rangePasses = rangeItems.filter(function (x) { return x.type === 'pass'; });
   if (multi && !all && rangePasses.length) {
@@ -816,6 +913,18 @@ function renderInsights() {
       barList(su, t('Urgency'), rated ? t('{a} of {b} strong or couldn’t wait', { a: urgent, b: rated }) : '', urgRows);
     }
     tiles.appendChild(su);
+  }
+
+  var leaksR = rangeItems.filter(function (x) { return x.type === 'leak'; });
+  if (leaksR.length) {
+    section(t('Leaks'), 'var(--leak)', multi ? t('{n} in {d} days', { n: leaksR.length, d: span }) : t('{n} in 24 h', { n: leaksR.length }));
+    var lt = el('div', 'tile wide'), cc = {}, pads = leaksR.filter(function (x) { return x.pad; }).length;
+    leaksR.forEach(function (x) { var c = x.cause || 'na'; cc[c] = (cc[c] || 0) + 1; });
+    var LC = { cough: '#b28ce8', urge: 'var(--leak)', moving: '#4f2f80', none: '#c9d8e0', na: '#e3edf2' };
+    var causeRows = LEAK_CAUSE.map(function (q) { return [t(q[1]), '', cc[q[0]] || 0, LC[q[0]]]; });
+    if (cc.na) causeRows.push([t('Not recorded'), '', cc.na, LC.na]);
+    barList(lt, t('What set it off'), pads ? tn(pads, 'Pad changed {n} time', 'Pad changed {n} times') : '', causeRows);
+    tiles.appendChild(lt);
   }
 
   // Bowel
@@ -864,11 +973,22 @@ function renderInsights() {
     if (cmp && cmp.prev.solids) bw.appendChild(el('div', 'sub', cmp.vs(signed(cmp.cur.solids - cmp.prev.solids, String))));
     tiles.appendChild(bw);
   }
+
+  if (!all && rangeDays < 14) {
+    var days = {}; s.forEach(function (x) { if (!isMark(x)) days[startOfDay(x.t)] = 1; });
+    var need = 10 - Object.keys(days).length, pl = el('button', 'tile wide plink'), pt = el('span');
+    pl.type = 'button'; pl.id = 'progressLink';
+    pt.appendChild(el('span', 'l', t('Progress'))); pt.appendChild(el('span', 'n', t('How things are changing')));
+    pt.appendChild(el('span', 'sub', need > 0 ? tn(need, 'Log on {n} more day to see it.', 'Log on {n} more days to see it.') : t('Opens the whole diary.')));
+    pl.appendChild(pt); pl.appendChild(svgIcon('i-right', 18));
+    pl.addEventListener('click', function () { rangeDays = 0; settings.range = 0; reportDays = 7; save(); renderInsights(); $('insightsSheet').scrollTop = 0; });
+    tiles.appendChild(pl);
+  }
 }
 
 function reportData() {
   var s = sorted(), out = [];
-  for (var o = -(reportDays - 1); o <= 0; o++) {
+  for (var o = -(reportDays - 1) - reportEnd; o <= -reportEnd; o++) {
     var r = dayRange(o);
     out.push({ start: r[0], items: between(s, r[0], r[1]) });
   }
@@ -883,6 +1003,8 @@ function reportModel(data) {
   var solidLane = settings.trackSolid || log.some(function (x) { return x.type === 'solid'; });
   var legend = [{ key: 'drink', label: t('Drink') }, { key: 'pass', label: t('Pass') }];
   if (solidLane) legend.push({ key: 'solid', label: t('Solid') });
+  var anyLeak = data.some(function (d) { return d.items.some(function (x) { return x.type === 'leak'; }); });
+  if (anyLeak) legend.push({ key: 'leak', label: t('Leak') });
   legend.push({ key: 'night', label: t('Night') }, { key: 'ns', label: t('No size') });
   var chart = {
     solidLane: solidLane, legend: legend,
@@ -891,17 +1013,17 @@ function reportModel(data) {
       return {
         label: fmtDate(d.start, { weekday: 'short', day: 'numeric' }),
         night: nightSegments(function (k) { return clockSlot(d.start, k, 15); }, 96),
-        dots: d.items.filter(function (x) { return !isSleep(x); }).map(function (x) { return { x: clockFraction(x.t), type: x.type, ns: !x.size && x.type !== 'solid' }; })
+        dots: d.items.filter(function (x) { return !isMark(x); }).map(function (x) { return { x: clockFraction(x.t), type: x.type, ns: !x.size && (x.type === 'drink' || x.type === 'pass') }; })
       };
     })
   };
   var f = fvSummary(data, isNight), v = function (ml) { return ml ? fmtVol(ml).replace(' ', '\u00a0') : '–'; };
-  var fvRow = function (label, r) { return [label, v(r.intakeMl), num(r.passes) + ' (' + num(r.nightPasses) + ')', v(r.outMl), v(r.nightMl), v(r.maxMl), v(r.meanMl)]; };
+  var fvRow = function (label, r) { return [label, v(r.intakeMl), num(r.passes) + ' (' + num(r.nightPasses) + ')', v(r.outMl), v(r.nightMl), v(r.maxMl), v(r.meanMl)].concat(anyLeak ? [num(r.leaks)] : []); };
   var fvNote = t('In is drinks, Out is passes. Night counts passes during your marked sleep or night hours. Volumes only include entries with a size; Average is per pass with a size.');
   if (f.rows.length > 1) fvNote += ' ' + (f.daysKept < f.rows.length ? t('Per day averages over the {a} of {b} days with entries.', { a: f.daysKept, b: f.rows.length }) : t('Per day averages over the days with entries.'));
   var fv = {
     caption: t('Frequency and volume'),
-    head: [t('Day'), t('In'), t('Passes (night)'), t('Out'), t('Night out'), t('Largest'), t('Average')],
+    head: [t('Day'), t('In'), t('Passes (night)'), t('Out'), t('Night out'), t('Largest'), t('Average')].concat(anyLeak ? [t('Leaks')] : []),
     rows: f.rows.map(function (r) { return fvRow(fmtDate(r.start, { weekday: 'short', day: 'numeric', month: 'short' }), r); }),
     total: f.rows.length > 1 && f.daysKept ? fvRow(t('Per day'), f.average) : null,
     note: fvNote
@@ -911,10 +1033,11 @@ function reportModel(data) {
     withNotes: withNotes,
     head: [t('Time'), t('Drink in'), t('Pass out')].concat(withNotes ? [t('Notes')] : []),
     days: data.map(function (d) {
-      var tin = 0, tout = 0, np = 0, nn = 0, ns = 0;
+      var tin = 0, tout = 0, np = 0, nn = 0, ns = 0, nl = 0;
       var rows = d.items.map(function (x) {
         var r = [{ text: fmtTime(x.t) }], note = withNotes ? [{ text: x.note || '' }] : [];
-        if (isSleep(x)) return r.concat([{ text: name(x.type), span: 2, muted: true }], note);
+        if (isMark(x)) return r.concat([{ text: name(x.type), span: 2, muted: true }], note);
+        if (x.type === 'leak') { nl++; return r.concat([{ text: '' }, { text: [name('leak')].concat(leakParts(x).map(low)).join(', ') }], note); }
         if (x.type === 'solid') {
           ns++;
           return r.concat([{ text: name('solid') + (x.bristol ? ', ' + t('Bristol {n}', { n: x.bristol }) : '') + (x.urgency && x.urgency !== 'none' ? ', ' + urgText(x.urgency) : ''), span: 2 }], note);
@@ -928,7 +1051,7 @@ function reportModel(data) {
         return r.concat([{ text: '' }, { text: nightly(txt, x.t) + (x.urgency && x.urgency !== 'none' ? ', ' + urgText(x.urgency) : '') }], note);
       });
       var total = [{ text: t('Totals') }, { text: tin ? fmtVol(tin) : '–' },
-        { text: tn(np, '{n} pass, {m} at night', '{n} passes, {m} at night', { m: nn }) + (tout ? ', ' + fmtVol(tout) : '') + (ns ? ', ' + tn(ns, '{n} solid', '{n} solids') : ''), span: withNotes ? 2 : 1 }];
+        { text: tn(np, '{n} pass, {m} at night', '{n} passes, {m} at night', { m: nn }) + (tout ? ', ' + fmtVol(tout) : '') + (ns ? ', ' + tn(ns, '{n} solid', '{n} solids') : '') + (nl ? ', ' + tn(nl, '{n} leak', '{n} leaks') : ''), span: withNotes ? 2 : 1 }];
       return { title: fmtDate(d.start, { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' }), rows: rows, total: total };
     })
   };
@@ -943,7 +1066,7 @@ function buildDiaryChart(box, ch) {
   box.textContent = '';
   var rowH = 28, wrap = el('div', 'plotwrap'), lab = el('div', 'daylabels'), mid = el('div'), plot = el('div', 'plot');
   mid.style.cssText = 'flex:1;min-width:0'; lab.style.height = plot.style.height = (ch.days.length * rowH) + 'px'; lab.style.width = '56px';
-  var lanes = ch.solidLane ? { drink: 6, solid: 14, pass: 22 } : { drink: 8, pass: 20 }, base = ch.solidLane ? 7 : 8;
+  var lanes = ch.solidLane ? { drink: 6, solid: 14, pass: 22, leak: 22 } : { drink: 8, pass: 20, leak: 20 }, base = ch.solidLane ? 7 : 8;
   ch.days.forEach(function (d, i) {
     var l = el('div', '', d.label); l.style.cssText = 'height:' + rowH + 'px;line-height:' + rowH + 'px'; lab.appendChild(l);
     if (i > 0) { var ln = el('div', 'ln'); ln.style.top = (i * rowH) + 'px'; plot.appendChild(ln); }
@@ -959,7 +1082,7 @@ function buildDiaryChart(box, ch) {
   mid.appendChild(plot);
   var ax = el('div', 'axis'); ch.axis.forEach(function (h) { ax.appendChild(el('span', '', h)); }); mid.appendChild(ax);
   wrap.appendChild(lab); wrap.appendChild(mid); box.appendChild(wrap);
-  var lg = el('div', 'legend'), keys = { drink: ['', 'background:var(--drink)'], pass: ['', 'background:var(--pass)'], solid: ['solidkey', ''], night: ['band', ''], ns: ['ring', ''] };
+  var lg = el('div', 'legend'), keys = { drink: ['', 'background:var(--drink)'], pass: ['', 'background:var(--pass)'], solid: ['solidkey', ''], leak: ['leakkey', ''], night: ['band', ''], ns: ['ring', ''] };
   ch.legend.forEach(function (it) { var sp = el('span'), i = el('i', keys[it.key][0]); if (keys[it.key][1]) i.style.cssText = keys[it.key][1]; sp.appendChild(i); sp.appendChild(document.createTextNode(it.label)); lg.appendChild(sp); });
   box.appendChild(lg);
 }
@@ -986,7 +1109,9 @@ function reportRange(data) {
 }
 function renderReport() {
   each('[data-days]', function (c) { c.setAttribute('aria-pressed', +c.getAttribute('data-days') === reportDays ? 'true' : 'false'); });
+  each('[data-end]', function (c) { c.setAttribute('aria-pressed', +c.getAttribute('data-end') === reportEnd ? 'true' : 'false'); });
   var m = reportModel(reportData()), box = $('reportTable'); box.textContent = '';
+  $('reportRange').textContent = m.range;
   buildDiaryChart($('reportChart'), m.chart);
   buildFvTable($('reportFv'), m.fv);
   var tbl = el('table', 'rep diary'); tbl.style.marginTop = '12px';
@@ -1030,6 +1155,7 @@ function stamp() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getM
 
 function render() {
   document.body.classList.toggle('clock12', settings.clock === '12');
+  applyTextSize();
   renderedDay = startOfDay(Date.now());
   refreshSleep(); syncSleepBtn(); renderStats(); renderList(); updateNudge(); checkReminder();
   renderRevealed();
@@ -1049,11 +1175,11 @@ function refreshInsights() {
 var renderedDay = 0;
 function catchUpDay() { if (startOfDay(Date.now()) !== renderedDay) render(); }
 // Open dialogs, top last. Everything outside the top one is made inert, and closing returns focus to what opened it.
-var dialogs = [], LAYERS = ['app', 'logSheet', 'insightsSheet', 'reportSheet', 'settingsSheet', 'sheet'];
+var dialogs = [], LAYERS = ['app', 'logSheet', 'insightsSheet', 'reportSheet', 'settingsSheet', 'sheet', 'bedSheet'];
 function syncInert() {
   var top = topDialog();
   LAYERS.forEach(function (id) { $(id).inert = top !== null && id !== top; });
-  $('scrim').hidden = top !== 'sheet';
+  $('scrim').hidden = top !== 'sheet' && top !== 'bedSheet';
 }
 function openDialog(id) {
   var d = $(id), from = document.activeElement;
@@ -1078,9 +1204,33 @@ function closeDialog(id) {
 function showOverlay(id) { openDialog(id); }
 function hideOverlay(id) { closeDialog(id); }
 
-$('drinkBtn').addEventListener('click', function (e) { addEntry('drink', e); });
-$('passBtn').addEventListener('click', function (e) { addEntry('pass', e); });
-$('sleepBtn').addEventListener('click', function () { addEntry(isAsleep() ? 'wake' : 'bed'); });
+// Holding a log button logs straight away without the bar's questions; the click that ends the hold is ignored.
+var held = null;
+['drink', 'pass'].forEach(function (type) {
+  var btn = $(type + 'Btn'), timer = null;
+  function cancel() { clearTimeout(timer); timer = null; }
+  btn.addEventListener('pointerdown', function (e) {
+    if (e.button) return;
+    cancel(); held = null;
+    timer = setTimeout(function () { timer = null; held = type; addEntry(type, e, true); }, 500);
+  });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) { btn.addEventListener(ev, cancel); });
+  btn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  btn.addEventListener('click', function (e) { if (held === type && e.detail) { held = null; return; } held = null; addEntry(type, e); });
+});
+$('sleepBtn').addEventListener('click', function () { if (isAsleep()) addEntry('wake'); else openDialog('bedSheet'); });
+$('bedGo').addEventListener('click', function () { closeDialog('bedSheet'); addEntry('bed'); });
+$('bedCancel').addEventListener('click', function () { closeDialog('bedSheet'); });
+$('wakeBtn').addEventListener('click', function () { addEntry('wake'); });
+$('leakBtn').addEventListener('click', function () { addEntry('leak'); });
+function toggleMarks(open) { $('markOpts').hidden = !open; $('markPill').setAttribute('aria-expanded', open ? 'true' : 'false'); }
+$('markPill').addEventListener('click', function () { toggleMarks($('markOpts').hidden); });
+each('[data-mark]', function (b) { b.addEventListener('click', function () { toggleMarks(false); addEntry(b.getAttribute('data-mark')); }); });
+$('padBtn').addEventListener('click', function () {
+  var e = find(sheetId); if (!e) return;
+  if (e.pad) delete e.pad; else e.pad = true;
+  save(); this.setAttribute('aria-pressed', e.pad ? 'true' : 'false'); renderList();
+});
 $('whenPill').addEventListener('click', function () { toggleWhen($('whenOpts').hidden); });
 each('[data-when]', function (b) { b.addEventListener('click', function () { setWhen(b.getAttribute('data-when')); }); });
 // iOS fires change on every wheel turn, so picking only updates the label; logging or tapping the pill closes the options.
@@ -1088,7 +1238,7 @@ each('[data-when]', function (b) { b.addEventListener('click', function () { set
 $('prev').addEventListener('click', function () { dayOffset -= 1; renderList(); });
 $('next').addEventListener('click', function () { if (dayOffset < 0) { dayOffset += 1; renderList(); } });
 $('sheetSkip').addEventListener('click', closeSheet);
-$('scrim').addEventListener('click', closeSheet);
+$('scrim').addEventListener('click', function () { if (topDialog() === 'bedSheet') closeDialog('bedSheet'); else closeSheet(); });
 $('barUndo').addEventListener('click', function () { if (barRestore) { var re = barRestore; hideBar(); restoreEntry(re.entry, re.partner); } else if (barId) remove(barId); });
 $('barMore').addEventListener('click', function () { var e = find(barId); if (e) openSheet(e); });
 var swipeY = null;
@@ -1096,7 +1246,7 @@ $('bar').addEventListener('pointerdown', function (e) { swipeY = e.clientY; if (
 $('bar').addEventListener('pointerup', function (e) { if (swipeY !== null && swipeY - e.clientY > 30) hideBar(); swipeY = null; });
 // The log buttons replace the bar themselves; hiding it first would swallow the "Already logged" warning on a double tap.
 // Entries open the sheet, which hides the bar; hiding it first moves the list up under the finger and the tap is lost.
-document.addEventListener('pointerdown', function (e) { if ((barId || barRestore) && !$('bar').contains(e.target) && !(e.target.closest && e.target.closest('.big, #sleepBtn, [data-id]'))) hideBar(); });
+document.addEventListener('pointerdown', function (e) { if ((barId || barRestore) && !$('bar').contains(e.target) && !(e.target.closest && e.target.closest('.big, #sleepBtn, #leakBtn, [data-mark], [data-id]'))) hideBar(); });
 $('sheetRemove').addEventListener('click', function () { if (!sheetId) return; var re = find(sheetId), rm = partner(re); remove(sheetId, true); if (re) showRemovedBar(re, rm); });
 $('exactToggle').addEventListener('click', function () { $('exactRow').hidden = false; $('exactInput').focus(); });
 function saveExact() {
@@ -1146,15 +1296,17 @@ function nudgeTime(dm) { var e = find(sheetId); if (e) moveEntry(e, e.t + dm * 6
 $('nudgeM').addEventListener('click', function () { nudgeTime(-5); });
 $('nudgeP').addEventListener('click', function () { nudgeTime(5); });
 
-$('nudgeNow').addEventListener('click', function () { syncSettings(); showOverlay('settingsSheet'); });
+function openSettingsAt(sec) { syncSettings(); if (sec) $(sec).open = true; showOverlay('settingsSheet'); }
+$('nudgeNow').addEventListener('click', function () { openSettingsAt('secBackup'); });
 $('nudgeLater').addEventListener('click', function () { bk.snooze = Date.now() + DAY; saveBk(); updateNudge(); });
 $('openInsights').addEventListener('click', function () { renderInsights(); showOverlay('insightsSheet'); });
+$('openSettingsMain').addEventListener('click', function () { openSettingsAt(); });
 $('todayStrip').addEventListener('click', function () {
   rangeDays = 1; settings.range = 1; reportDays = 1; save();
   renderInsights(); showOverlay('insightsSheet');
 });
 $('openReport').addEventListener('click', function () { renderReport(); showOverlay('reportSheet'); });
-$('openSettings').addEventListener('click', function () { syncSettings(); showOverlay('settingsSheet'); });
+$('openSettings').addEventListener('click', function () { openSettingsAt(); });
 each('[data-close]', function (b) { b.addEventListener('click', function () { hideOverlay(b.getAttribute('data-close')); }); });
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape' && dialogs.length) {
@@ -1164,6 +1316,7 @@ document.addEventListener('keydown', function (e) {
 });
 each('[data-range]', function (b) { b.addEventListener('click', function () { rangeDays = +b.getAttribute('data-range'); settings.range = rangeDays; save(); reportDays = !rangeDays || rangeDays > 7 ? 7 : rangeDays; renderInsights(); }); });
 each('[data-days]', function (b) { b.addEventListener('click', function () { reportDays = +b.getAttribute('data-days'); renderReport(); }); });
+each('[data-end]', function (b) { b.addEventListener('click', function () { reportEnd = +b.getAttribute('data-end'); renderReport(); }); });
 $('copyCsv').addEventListener('click', function () { copyText(csv(), $('reportMsg'), t('CSV copied')); });
 $('dlCsv').addEventListener('click', function () { saveFile('drink-pass-' + stamp() + '.csv', csv(), $('reportMsg')); });
 $('pdfBtn').addEventListener('click', function () {
@@ -1188,6 +1341,23 @@ each('[data-toggle]', function (b) {
 each('[data-dots]', function (b) {
   b.addEventListener('click', function () { settings.dotScale = b.getAttribute('data-dots'); save(); syncSettings(); renderInsights(); });
 });
+each('[data-textsize]', function (b) {
+  b.addEventListener('click', function () { settings.textSize = b.getAttribute('data-textsize'); save(); applyTextSize(); syncSettings(); render(); });
+});
+function applyTextSize() { var h = document.documentElement; h.classList.toggle('ts-large', settings.textSize === 'large'); h.classList.toggle('ts-xl', settings.textSize === 'xl'); }
+each('[data-target]', function (b) {
+  b.addEventListener('click', function () { settings.target = +b.getAttribute('data-target'); save(); syncSettings(); render(); });
+});
+each('[data-train]', function (b) {
+  b.addEventListener('click', function () {
+    var v = +b.getAttribute('data-train');
+    if (v && v !== settings.trainEvery) settings.trainSince = Date.now();
+    settings.trainEvery = v; save(); syncSettings(); render();
+  });
+});
+each('[data-stretch]', function (b) {
+  b.addEventListener('click', function () { settings.trainStretch = +b.getAttribute('data-stretch'); save(); syncSettings(); render(); });
+});
 function setNight(field) {
   return function () {
     if (!this.value) return;
@@ -1198,7 +1368,7 @@ function setNight(field) {
 }
 onSettled($('nightStart'), setNight('nightStart'));
 onSettled($('nightEnd'), setNight('nightEnd'));
-function backupText() { return JSON.stringify({ version: 1, schema: 2, app: 'drink-pass-journal', exportedAt: new Date().toISOString(), count: log.length, log: log, settings: settings }); }
+function backupText() { return JSON.stringify({ version: 1, schema: SCHEMA, app: 'drink-pass-journal', exportedAt: new Date().toISOString(), count: log.length, log: log, settings: settings }); }
 function protectedBackup() {
   var pass = $('backupPass').value;
   return pass ? encryptBackup(backupText(), pass) : Promise.resolve(backupText());
@@ -1397,6 +1567,12 @@ function syncSettings() {
   $('remindNotify').setAttribute('aria-pressed', settings.remindNotify ? 'true' : 'false');
   each('[data-toggle]', function (b) { var k = b.getAttribute('data-toggle'); b.setAttribute('aria-pressed', (k === 'askSize' ? settings.askSize !== false : !!settings[k]) ? 'true' : 'false'); });
   each('[data-dots]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-dots') === (settings.dotScale || 'same') ? 'true' : 'false'); });
+  each('[data-textsize]', function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-textsize') === settings.textSize ? 'true' : 'false'); });
+  each('[data-target]', function (b) { var v = +b.getAttribute('data-target'); if (v) b.textContent = fmtVol(v); b.setAttribute('aria-pressed', v === settings.target ? 'true' : 'false'); });
+  each('[data-train]', function (b) { var v = +b.getAttribute('data-train'); if (v) b.textContent = fmtDur(v * 60000); b.setAttribute('aria-pressed', v === settings.trainEvery ? 'true' : 'false'); });
+  each('[data-stretch]', function (b) { b.setAttribute('aria-pressed', +b.getAttribute('data-stretch') === settings.trainStretch ? 'true' : 'false'); b.disabled = !settings.trainEvery; });
+  var gap = trainGap(settings, Date.now());
+  $('trainMsg').textContent = gap ? t('Planned gap now: {d}.', { d: fmtDur(gap * 60000) }) : '';
   $('nightStart').value = settings.nightStart; $('nightEnd').value = settings.nightEnd;
   backupStatus(); renderTrash(); storeStatus(); renderSnaps();
 }
@@ -1434,18 +1610,35 @@ setInterval(function () {
 
 var remindSnooze = 0, notifiedFor = null;
 function checkReminder() {
+  checkTraining();
   var now = Date.now(), due = now < remindSnooze ? null : drinkReminder(sorted(), now, settings.remindAfter, isNight, isAsleep());
   $('remindBar').hidden = !due;
   if (!due) return;
   var text = (due.drank ? t('It’s been {d} since your last drink.', { d: fmtDur(now - due.since) }) : t('You haven’t logged a drink for {d}.', { d: fmtDur(now - due.since) })) + ' ' + t('Time for some water?');
+  var left = settings.target ? settings.target - todayIntake() : 0;
+  if (left > 0) text += ' ' + t('{v} to go today.', { v: fmtVol(left) });
   $('remindText').textContent = text;
-  if (settings.remindNotify && notifiedFor !== due.since && document.visibilityState === 'hidden' && window.Notification && Notification.permission === 'granted') {
-    notifiedFor = due.since;
-    navigator.serviceWorker.getRegistration().then(function (reg) {
-      if (reg) reg.showNotification('Drink & Pass', { body: text, tag: 'drink-reminder', icon: 'icons/icon-192.png' });
-    }).catch(function () {});
-  }
+  if (notifiedFor !== due.since && notify(text, 'drink-reminder')) notifiedFor = due.since;
 }
+function notify(text, tag) {
+  if (!settings.remindNotify || document.visibilityState !== 'hidden' || !window.Notification || Notification.permission !== 'granted') return false;
+  navigator.serviceWorker.getRegistration().then(function (reg) {
+    if (reg) reg.showNotification('Drink & Pass', { body: text, tag: tag, icon: 'icons/icon-192.png' });
+  }).catch(function () {});
+  return true;
+}
+var trainSnooze = 0, trainNotified = null;
+function checkTraining() {
+  var now = Date.now(), next = plannedPass(now);
+  var due = next !== null && now >= next && !(now < trainSnooze) && !isNight(now) && !isAsleep();
+  $('trainBar').hidden = !due;
+  if (!due) return;
+  var text = t('Time for a planned pass.');
+  $('trainText').textContent = text;
+  if (trainNotified !== next && notify(text, 'train-reminder')) trainNotified = next;
+}
+$('trainLog').addEventListener('click', function () { addEntry('pass'); });
+$('trainLater').addEventListener('click', function () { trainSnooze = Date.now() + 15 * 60000; checkTraining(); });
 $('remindLog').addEventListener('click', function () { addEntry('drink'); });
 $('remindLater').addEventListener('click', function () { remindSnooze = Date.now() + 3600000; checkReminder(); });
 each('[data-remind]', function (b) {
@@ -1490,7 +1683,7 @@ var swReg = null;
 function updateReady() { $('updateBar').hidden = false; $('checkUpdate').textContent = t('Update'); $('updateMsg').textContent = t('A new version of the app is ready.'); }
 function watchUpdates(reg) {
   swReg = reg;
-  var offer = function (w) { if (w && navigator.serviceWorker.controller) { waitingWorker = w; updateReady(); } };
+  var offer = function (w) { if (w && navigator.serviceWorker.controller) { waitingWorker = w; if (untouched()) applyUpdate(); else updateReady(); } };
   offer(reg.waiting);
   reg.addEventListener('updatefound', function () {
     var w = reg.installing; if (!w) return;
@@ -1510,12 +1703,28 @@ $('checkUpdate').addEventListener('click', function () {
     w.addEventListener('statechange', function () { if (w.state === 'redundant' && msg.textContent === t('Checking…')) msg.textContent = t('The update couldn’t download. Try again later.'); });
   }, function () { msg.textContent = t('Couldn’t check for updates. Are you online?'); });
 });
-$('updateNow').addEventListener('click', function () {
+// Until the first tap or key press after opening or returning to the app, nothing is in progress, so an update applies straight away.
+var fresh = true;
+['pointerdown', 'keydown'].forEach(function (ev) { document.addEventListener(ev, function () { fresh = false; }, true); });
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') fresh = true; });
+function untouched() { return fresh && !dialogs.length && !barId && !pendingNote && $('recover').hidden; }
+function applyUpdate() {
   if (!waitingWorker) return;
   flushNote(); mirrorNow();
+  try { sessionStorage.setItem('dp-updated', '1'); } catch (e) {}
   $('updateNow').disabled = true;
   waitingWorker.postMessage({ type: 'skip-waiting' });
-});
+}
+$('updateNow').addEventListener('click', applyUpdate);
+function showUpdated() {
+  var done = false;
+  try { done = sessionStorage.getItem('dp-updated') === '1'; sessionStorage.removeItem('dp-updated'); } catch (e) {}
+  if (!done) return;
+  $('updatedText').textContent = t('Updated to version {v}.', { v: APP_VERSION });
+  $('updatedBar').hidden = false;
+}
+$('updatedOk').addEventListener('click', function () { $('updatedBar').hidden = true; });
+showUpdated();
 if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
   navigator.serviceWorker.addEventListener('message', function (e) {
     if (e.data && e.data.type === 'install-failed') $('updateMsg').textContent = t('Version {v} couldn’t download: {why}', { v: e.data.version, why: e.data.reason });

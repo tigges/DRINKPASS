@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { stored, openSettings } from './helpers.js';
+import { stored, openSettings, openSection } from './helpers.js';
 
 const at = (s) => Date.parse(s);
 // iOS Safari fires input and change on every wheel turn while its time picker is open.
@@ -37,9 +37,15 @@ test('picking a time keeps the options open while hours and minutes are turned',
   await expect(page.locator('#whenText')).toHaveText('Now');
 });
 
-test('a double tap on the moon logs bed only', async ({ page }) => {
+test('the moon asks before logging bed, and a quick tap on the sun after it logs nothing', async ({ page }) => {
   await page.goto('./');
   await page.locator('#sleepBtn').click();
+  await expect(page.locator('#bedSheet')).toBeVisible();
+  await page.locator('#bedCancel').click();
+  expect(await stored(page)).toHaveLength(0);
+  await page.locator('#sleepBtn').click();
+  await page.locator('#bedGo').click();
+  await expect(page.locator('#sleepCard')).toBeVisible();
   await page.locator('#sleepBtn').click();
   const log = await stored(page);
   expect(log.map((x) => x.type)).toEqual(['bed']);
@@ -121,6 +127,7 @@ test('exact amounts accept a decimal comma and refuse impossible sizes', async (
 test('night hours save once the picker closes and cannot start and end together', async ({ page }) => {
   await page.goto('./');
   await openSettings(page);
+  await openSection(page, 'secLogging');
   const end = page.locator('#nightEnd');
   await end.focus();
   await turnWheel(end, '22:00');

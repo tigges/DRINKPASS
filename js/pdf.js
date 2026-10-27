@@ -6,7 +6,7 @@
 
 var PW = 595.28, PH = 841.89, ML = 34, MT = 40, MB = 46, CW = PW - 2 * ML, SCALE = 2.2;
 var INK = '#0e2a3b', MUTED = '#555555', LINE = '#d9e3e8', BAND = '#d5e5ee', TRACK = '#eef4f7';
-var COLORS = { drink: '#1572b5', pass: '#f6c800', solid: '#8a6a4f' }, RINGS = { drink: '#1572b5', pass: '#c79f00' };
+var COLORS = { drink: '#1572b5', pass: '#f6c800', solid: '#8a6a4f', leak: '#7d4fb8' }, RINGS = { drink: '#1572b5', pass: '#c79f00' };
 var FONT = '"Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Noto Sans CJK SC", sans-serif';
 
 /** Splits text into lines no wider than max; words longer than a line (or text without spaces, like Chinese) break anywhere. */
@@ -109,7 +109,7 @@ function layout(m, ctx) {
       d.night.forEach(function (s) { c.fillRect(px + s[0] / 96 * pw, top + i * rowH, (s[1] - s[0]) / 96 * pw, rowH); });
       if (i) { c.fillStyle = LINE; c.fillRect(px, top + i * rowH, pw, 0.6); }
     });
-    var lanes = ch.solidLane ? { drink: 0.25, solid: 0.5, pass: 0.76 } : { drink: 0.3, pass: 0.7 }, r = ch.solidLane ? 2.4 : 2.7;
+    var lanes = ch.solidLane ? { drink: 0.25, solid: 0.5, pass: 0.76, leak: 0.76 } : { drink: 0.3, pass: 0.7, leak: 0.7 }, r = ch.solidLane ? 2.4 : 2.7;
     ch.days.forEach(function (d, i) {
       d.dots.forEach(function (dot) {
         var cx = px + dot.x * pw, cy = top + i * rowH + lanes[dot.type] * rowH;

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { stored, restoreSample } from './helpers.js';
+import { stored, restoreSample, openSection } from './helpers.js';
 
 test('an unreadable saved journal is kept, not overwritten', async ({ page }) => {
   await page.goto('./');
@@ -46,6 +46,7 @@ test('removing a pass logged with a solid removes and restores both', async ({ p
   await page.goto('./');
   await page.locator('#openInsights').click();
   await page.locator('#openSettings').click();
+  await openSection(page, 'secLogging');
   await page.locator('[data-toggle="trackSolid"]').click();
   await page.locator('[data-close="settingsSheet"]').click();
   await page.locator('[data-close="insightsSheet"]').click();

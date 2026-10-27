@@ -1,4 +1,4 @@
-import { labelOf, KINDS, URG } from './core.js';
+import { labelOf, KINDS, URG, LEAK_AMOUNT, LEAK_CAUSE } from './core.js';
 
 var LOINC = 'http://loinc.org';
 var UCUM = 'http://unitsofmeasure.org';
@@ -30,6 +30,11 @@ function observation(x, isNight) {
     o.code = { coding: [{ system: LOINC, code: '9187-6', display: 'Urine output' }, appCode('pass', 'Pass urine')], text: 'Urine output' + (x.size && x.size.label !== 'exact' ? ' (estimated from size)' : '') };
     Object.assign(o, volume(x));
     comps.push({ code: { coding: [appCode('night', 'During night hours')] }, valueBoolean: !!isNight(x.t) });
+  } else if (x.type === 'leak') {
+    o.code = { coding: [appCode('leak', 'Urine leakage')], text: 'Urine leakage' };
+    if (x.amount) comps.push({ code: { coding: [appCode('leak-amount', 'Leak amount')] }, valueCodeableConcept: { coding: [appCode(x.amount, labelOf(LEAK_AMOUNT, x.amount))], text: labelOf(LEAK_AMOUNT, x.amount) } });
+    if (x.cause) comps.push({ code: { coding: [appCode('leak-cause', 'What set it off')] }, valueCodeableConcept: { coding: [appCode(x.cause, labelOf(LEAK_CAUSE, x.cause))], text: labelOf(LEAK_CAUSE, x.cause) } });
+    comps.push({ code: { coding: [appCode('pad-changed', 'Pad changed')] }, valueBoolean: !!x.pad });
   } else {
     o.code = { coding: [appCode('solid', 'Bowel movement')], text: 'Bowel movement' };
     if (x.bristol) comps.push({ code: { coding: [appCode('bristol', 'Bristol stool form score')], text: 'Bristol stool form score' }, valueInteger: x.bristol });
@@ -40,10 +45,10 @@ function observation(x, isNight) {
   return o;
 }
 
-/** A FHIR R4 collection Bundle with one Observation per drink, pass and solid. Sleep markers are left out. */
+/** A FHIR R4 collection Bundle with one Observation per drink, pass, solid and leak. Sleep, tablet and exercise markers are left out. */
 export function toFhirBundle(entries, isNight, opts) {
   var o = opts || {}, uuid = o.uuid || function () { return crypto.randomUUID(); };
-  var list = entries.filter(function (x) { return x.type === 'drink' || x.type === 'pass' || x.type === 'solid'; });
+  var list = entries.filter(function (x) { return x.type === 'drink' || x.type === 'pass' || x.type === 'solid' || x.type === 'leak'; });
   return {
     resourceType: 'Bundle',
     type: 'collection',

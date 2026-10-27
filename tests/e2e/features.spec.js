@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { stored, openSettings, restoreSample } from './helpers.js';
+import { stored, openSettings, restoreSample, openSection } from './helpers.js';
 
 async function download(page, button) {
   const [dl] = await Promise.all([page.waitForEvent('download'), page.locator(button).click()]);
@@ -50,6 +50,7 @@ test('the drink reminder appears after the chosen gap and can be snoozed', async
   await page.goto('./');
   await page.locator('#drinkBtn').click();
   await openSettings(page);
+  await openSection(page, 'secRemind');
   await page.locator('[data-remind="2"]').click();
   await page.locator('[data-close="settingsSheet"]').click();
   await page.locator('[data-close="insightsSheet"]').click();
@@ -112,6 +113,7 @@ test('times use a 24-hour clock by default and can switch to 12-hour', async ({ 
   await page.clock.setFixedTime(new Date('2026-01-15T21:00:00Z'));
   await page.goto('./');
   await restoreSample(page);
+  await openSection(page, 'secDisplay');
   await expect(page.locator('[data-clock="24"]')).toHaveAttribute('aria-pressed', 'true');
   await page.locator('[data-close="settingsSheet"]').click();
   await page.locator('[data-close="insightsSheet"]').click();
@@ -202,6 +204,7 @@ test('today’s totals sit above the list and open Insights at 24 h', async ({ p
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('drink-pass-settings-v1') || '{}').range)).toBe(1);
 
   await page.locator('#openSettings').click();
+  await openSection(page, 'secLogging');
   await page.locator('[data-toggle="showToday"]').click();
   await expect(page.locator('[data-toggle="showToday"]')).toHaveAttribute('aria-pressed', 'false');
   await page.reload();

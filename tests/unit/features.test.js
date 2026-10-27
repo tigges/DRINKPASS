@@ -23,7 +23,7 @@ test('fvSummary reports per-day frequency and volume with a daily average', () =
   const fv = fvSummary(days, night);
   assert.deepEqual(
     { ...fv.rows[0], start: undefined },
-    { start: undefined, intakeMl: 250, drinks: 1, passes: 3, nightPasses: 1, outMl: 500, nightMl: 300, sized: 2, maxMl: 300, meanMl: 250 }
+    { start: undefined, intakeMl: 250, drinks: 1, passes: 3, nightPasses: 1, outMl: 500, nightMl: 300, sized: 2, maxMl: 300, meanMl: 250, leaks: 0 }
   );
   assert.equal(fv.average.passes, 2);
   assert.equal(fv.average.outMl, 300);
@@ -92,4 +92,29 @@ test('encrypted backups round-trip and reject a wrong password', async () => {
   assert.equal(await decryptBackup(d, 'correct horse'), text);
   await assert.rejects(decryptBackup(d, 'wrong'), (e) => e.code === 'password');
   assert.notEqual(JSON.parse(await encryptBackup(text, 'correct horse')).iv, d.iv, 'fresh IV each time');
+});
+
+test('a leak becomes an Observation with its amount, cause and pad change; markers stay out', () => {
+  const t = at('2026-10-24T08:00');
+  const b = toFhirBundle([
+    { id: 'l', type: 'leak', t, amount: 'drops', cause: 'cough', pad: true },
+    { id: 'm', type: 'tablet', t }, { id: 'e', type: 'exercise', t }
+  ], night, { uuid: () => 'u', now: t });
+  assert.equal(b.entry.length, 1);
+  const o = b.entry[0].resource, comp = (code) => o.component.find((c) => c.code.coding[0].code === code);
+  assert.equal(o.code.coding[0].code, 'leak');
+  assert.equal(comp('leak-amount').valueCodeableConcept.coding[0].code, 'drops');
+  assert.equal(comp('leak-cause').valueCodeableConcept.text, 'Cough or sneeze');
+  assert.equal(comp('pad-changed').valueBoolean, true);
+});
+
+test('fvSummary counts leaks and keeps leak-only days in the average', () => {
+  const d1 = at('2026-10-20T00:00'), d2 = at('2026-10-21T00:00');
+  const f = fvSummary([
+    { start: d1, items: [{ type: 'pass', t: d1 + 9 * H }, { type: 'leak', t: d1 + 10 * H }] },
+    { start: d2, items: [{ type: 'leak', t: d2 + 9 * H }] }
+  ], night);
+  assert.deepEqual(f.rows.map((r) => r.leaks), [1, 1]);
+  assert.equal(f.daysKept, 2);
+  assert.equal(f.average.leaks, 1);
 });
