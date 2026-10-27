@@ -19,6 +19,7 @@ test('a password-protected backup downloads encrypted and restores with the pass
   const fresh = await (await browser.newContext()).newPage();
   await fresh.goto('./');
   await openSettings(fresh);
+  await openSection(fresh, 'secBackup');
   await fresh.locator('#restoreBox').fill(file.text);
   await fresh.locator('#restoreBtn').click();
   await expect(fresh.locator('#unlockBox')).toBeVisible();
