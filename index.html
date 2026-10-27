@@ -36,7 +36,7 @@
   <symbol id="i-note" viewBox="0 0 24 24"><path d="M7 3h8l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M9 12h6M9 16h4"/></symbol>
   <symbol id="i-solid" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></symbol>
   <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M4 12V9a3 3 0 0 1 3-3h11l-3-3M20 12v3a3 3 0 0 1-3 3H6l3 3"/></symbol>
-  <symbol id="i-pill" viewBox="0 0 24 24"><rect x="3" y="8.5" width="18" height="7" rx="3.5" transform="rotate(-40 12 12)"/><path d="M9.7 9.3l4.6 5.4"/></symbol>
+  <symbol id="i-pill" viewBox="0 0 24 24"><rect x="2.5" y="7" width="19" height="10" rx="5"/><path d="M12 7v10"/><path d="M5.5 12h3"/></symbol>
   <symbol id="i-flex" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></symbol>
   <symbol id="i-leak" viewBox="0 0 24 24"><path d="M9 4c2.4 2.9 4.1 5 4.1 7.3a4.1 4.1 0 0 1-8.2 0C4.9 9 6.6 6.9 9 4z"/><path d="M17 12.5c1.4 1.7 2.4 2.9 2.4 4.2a2.4 2.4 0 0 1-4.8 0c0-1.3 1-2.5 2.4-4.2z"/></symbol>
   <symbol id="f-en" viewBox="0 0 60 30" preserveAspectRatio="xMidYMid slice"><rect width="60" height="30" fill="#012169"/><path d="M0 0L60 30M60 0L0 30" stroke="#fff" stroke-width="6"/><path d="M0 0L60 30M60 0L0 30" stroke="#c8102e" stroke-width="2"/><path d="M30 0V30M0 15H60" stroke="#fff" stroke-width="10"/><path d="M30 0V30M0 15H60" stroke="#c8102e" stroke-width="6"/></symbol>
@@ -85,9 +85,9 @@
   <header class="head">
     <h1 translate="no"><svg class="logo" aria-hidden="true"><use href="#i-logo"/></svg>Drink <span class="amp">&amp;</span> Pass</h1>
     <span class="hacts">
-      <button class="iconbtn" id="sleepBtn" type="button" aria-label="Going to bed"><svg class="ic"><use id="sleepUse" href="#i-moon"/></svg></button>
-      <button class="iconbtn" id="openInsights" type="button" aria-label="Insights"><svg class="ic"><use href="#i-dots"/></svg></button>
-      <button class="iconbtn" id="openSettingsMain" type="button" aria-label="Settings and backup"><svg class="ic"><use href="#i-sliders"/></svg></button>
+      <button class="iconbtn hbtn" id="sleepBtn" type="button" aria-label="Going to bed"><svg class="ic"><use id="sleepUse" href="#i-moon"/></svg><span class="hl" id="sleepLabel" aria-hidden="true">Bed</span></button>
+      <button class="iconbtn hbtn" id="openInsights" type="button" aria-label="Insights"><svg class="ic"><use href="#i-dots"/></svg><span class="hl" aria-hidden="true">Insights</span></button>
+      <button class="iconbtn hbtn" id="openSettingsMain" type="button" aria-label="Settings and backup"><svg class="ic"><use href="#i-sliders"/></svg><span class="hl" aria-hidden="true">Settings</span></button>
     </span>
   </header>
 
@@ -271,7 +271,12 @@
   <div class="inner">
     <div class="oh"><h2>Settings and backup</h2><button class="iconbtn" data-close="settingsSheet" type="button" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button></div>
 
-    <details class="sec" id="secBackup" open>
+    <div class="bkcard">
+      <p class="hint lead" id="lastBackup"></p>
+      <div class="setrow last"><button class="btn primary" id="dlBackupTop" type="button">Download backup</button><span id="backupTopMsg" class="hint"></span></div>
+    </div>
+
+    <details class="sec" id="secBackup">
       <summary>Backup and data</summary>
       <div class="sech first">Storage</div>
       <p class="hint lead" id="storeStatus"></p>
@@ -280,8 +285,7 @@
       <details class="auto"><summary>Automatic copies</summary><div id="snapList"></div></details>
 
       <div class="sech">Backup</div>
-      <p class="hint lead" id="lastBackup"></p>
-      <div class="setrow"><label for="backupPass">Password (optional)</label><input class="timein" id="backupPass" type="password" autocomplete="new-password" placeholder="For an encrypted backup"></div>
+      <div class="setrow stack"><label for="backupPass">Password (optional)</label><input class="timein" id="backupPass" type="password" autocomplete="new-password" placeholder="For an encrypted backup"></div>
       <p class="hint tight">With a password, the backup file is encrypted and can only be restored with that password. There is no way to recover a forgotten password.</p>
       <div class="setrow"><button class="btn" id="dlBackup" type="button">Download backup</button><button class="btn" id="copyBackup" type="button">Copy backup</button><span id="backupMsg" class="hint"></span></div>
       <div class="setrow"><label class="btn filebtn" for="restoreFile">Restore from file</label><input class="vh" id="restoreFile" type="file" accept=".json,application/json,text/plain"></div>

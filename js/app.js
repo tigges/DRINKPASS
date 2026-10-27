@@ -3,7 +3,7 @@ import {
   isSleep, isMark, pad, cap, labelOf, median, startOfDay, dayRange, fmtTime as fmtTimeIn, fmtHour, fmtDur as fmtDurIn, agoText as agoTextIn, toLocalInput,
   sortEntries, isoDate, between, sleepModel, sanitizeSettings, migrateLog, DEFAULT_SETTINGS, SCHEMA, isNightAt, isAsleepAt, computeGaps, periodStats as periodStatsOf, toCsv,
   fmtVol as fmtVolIn
-  , fvSummary, drinkReminder, lastClockTime, APP_VERSION, clockFraction, clockSlot, dayOffsetOf, MAX_ML, dailySeries, rolling, trendEnds
+  , fvSummary, drinkReminder, lastClockTime, clockNight, APP_VERSION, clockFraction, clockSlot, dayOffsetOf, MAX_ML, dailySeries, rolling, trendEnds
 } from './core.js';
 import { toFhirBundle } from './fhir.js';
 import { reportPdf } from './pdf.js';
@@ -108,6 +108,7 @@ function syncSleepBtn() {
   var a = isAsleep();
   $('sleepUse').setAttribute('href', a ? '#i-sun' : '#i-moon');
   $('sleepBtn').setAttribute('aria-label', a ? t('Up for the day') : t('Going to bed'));
+  $('sleepLabel').textContent = a ? t('header|Up') : t('Bed');
 }
 
 function getWhen() {
@@ -420,7 +421,9 @@ function showBar(entry, rebuilt, quick) {
   if (!rebuilt && entry.type === 'drink' && settings.showKind && !entry.kind) { var lk = lastKind(entry.id); if (lk) { entry.kind = lk; save(); renderList(); } }
   var m = (entry.type === 'pass' || entry.type === 'solid') ? whatMode(entry) : null;
   $('barMsg').textContent = t('{what} logged · {time}', { what: m === 'both' ? t('Pass and solid') : name(entry.type), time: fmtTime(entry.t) }) + (quick && entry.size ? ' · ' + fmtVol(entry.size.ml) : '');
-  if (quick) { $('bar').hidden = false; armBar(3000); return; }
+  if (quick) { noMoreHoldTips(); $('bar').hidden = false; armBar(6000); return; }
+  var offerWake = !rebuilt && (entry.type === 'drink' || entry.type === 'pass') && isAsleep() && !clockNight(entry.t, settings.nightStart, settings.nightEnd);
+  if (offerWake) rows.appendChild(wakeRow(entry));
   if (asked.indexOf('amount') > -1) rows.appendChild(optRow(t('How much'), LEAK_AMOUNT, 'amount', entry, 3));
   if (asked.indexOf('cause') > -1) { rows.appendChild(optRow(t('What set it off'), LEAK_CAUSE, 'cause', entry, 4)); rows.appendChild(padRow()); }
   if (settings.trackSolid && m) rows.appendChild(whatRow());
@@ -428,9 +431,32 @@ function showBar(entry, rebuilt, quick) {
   if (asked.indexOf('kind') > -1) rows.appendChild(optRow(t('Type'), KINDS_SHORT, 'kind', entry));
   if (asked.indexOf('urg') > -1) rows.appendChild(optRow(t('Urgency'), URG, 'urgency', entry, 4, m === 'both' ? function () { return [find(barId), partner(find(barId))]; } : null));
   if (asked.indexOf('bristol') > -1) rows.appendChild(optRow(t('Stool type (Bristol 1 to 7)'), BRISTOL, 'bristol', entry, 7, m === 'both' ? function () { return [partner(find(barId))]; } : null));
+  if (!rebuilt && asked.length && (entry.type === 'drink' || entry.type === 'pass') && holdTipDue()) rows.appendChild(el('p', 'bartip', t('Tip: hold Drink or Pass to log without these questions.')));
   $('bar').hidden = false;
   checkBar(entry, true);
+  if (offerWake) armBar(10000);
 }
+/** Logging in the morning while still marked asleep offers to end the night at that entry's time. */
+function wakeRow(entry) {
+  var grid = barGrid('wake'), b = el('button', '', t('I’m up')); b.type = 'button';
+  grid.appendChild(el('span', '', t('Up for the day?'))); grid.appendChild(b);
+  b.addEventListener('click', function () {
+    if (!isAsleep()) { grid.remove(); return; }
+    log.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2, 7), type: 'wake', t: entry.t });
+    save(); render(); grid.remove();
+    var e = find(barId); if (e) checkBar(e, false);
+  });
+  return grid;
+}
+// The tip shows on the first few logs that ask questions, and stops for good once someone has held a button.
+var TIPKEY = 'dp-holdtips';
+function holdTipDue() {
+  var n = 0; try { n = +localStorage.getItem(TIPKEY) || 0; } catch (e) {}
+  if (n >= 3) return false;
+  try { localStorage.setItem(TIPKEY, String(n + 1)); } catch (e) {}
+  return true;
+}
+function noMoreHoldTips() { try { localStorage.setItem(TIPKEY, '3'); } catch (e) {} }
 
 function showRemovedBar(e, mate) {
   barId = null; barRestore = { entry: e, partner: mate }; $('barRows').textContent = '';
@@ -513,10 +539,10 @@ function renderLatest() {
   $('todayCount').textContent = t('{n} today', { n: s.filter(function (x) { return x.t >= today; }).length });
   wrap.textContent = '';
   if (!s.length) { wrap.appendChild(guide()); return; }
-  var h = wrap.clientHeight, n = Math.max(2, Math.min(5, Math.floor((h - MORE_H) / ROW_H)));
+  var h = wrap.clientHeight, n = Math.max(2, Math.min(8, Math.floor((h - MORE_H) / ROW_H)));
   s.slice(0, n).forEach(function (x) { wrap.appendChild(buildRow(x, info, true)); });
   var m = document.createElement('button'); m.type = 'button'; m.className = 'more';
-  m.appendChild(document.createTextNode(tn(s.length, '{n} entry', 'All {n} entries'))); m.appendChild(svgIcon('i-right', 16));
+  m.appendChild(document.createTextNode(t('All entries, by day'))); m.appendChild(svgIcon('i-right', 16));
   m.addEventListener('click', function () { dayOffset = 0; renderLog(); showOverlay('logSheet'); });
   wrap.appendChild(m);
 }
@@ -620,13 +646,15 @@ function trendSvg(series, m, w, h, big, marks) {
   }
   return svg;
 }
-function renderProgress(tiles, section, series) {
-  var logged = series.filter(function (r) { return r.logged; }).length, rows = [];
-  TRENDS.forEach(function (m) { var e = trendEnds(series, m.key); if (e) rows.push({ m: m, e: e }); });
+function renderProgress(tiles, section, all) {
+  // Today isn't over, so its totals would always look low; it counts towards the 10 days but not the trends.
+  var today = startOfDay(Date.now()), series = all.filter(function (r) { return r.start < today; });
+  var logged = all.filter(function (r) { return r.logged; }).length, rows = [];
+  if (series.length) TRENDS.forEach(function (m) { var e = trendEnds(series, m.key); if (e) rows.push({ m: m, e: e }); });
   var box = el('div', 'tile wide prog'), s = sorted(), marks = [];
   [['tablet', k('First tablet')], ['exercise', k('First pelvic floor exercises')]].forEach(function (q) {
     var f = s.filter(function (x) { return x.type === q[0]; })[0];
-    if (f && f.t >= series[0].start) marks.push({ type: q[0], t: f.t, label: q[1] });
+    if (f && series.length && f.t >= series[0].start && f.t < today) marks.push({ type: q[0], t: f.t, label: q[1] });
   });
   if (logged < 10) {
     section(t('Progress'), 'var(--ink)', '');
@@ -655,7 +683,7 @@ function renderProgress(tiles, section, series) {
     b.addEventListener('click', function () { progressOpen = open ? null : m.key; renderInsights(); var again = document.querySelector('[aria-controls="' + id + '"]'); if (again) again.focus(); });
     box.appendChild(b); box.appendChild(det);
   });
-  box.appendChild(el('div', 'sub', t('Dots: each logged day. Line: the median of the last 7 days. Shaded: not logged.')));
+  box.appendChild(el('div', 'sub', t('Dots: each logged day. Line: the median of the last 7 days. Shaded: not logged.') + ' ' + t('Today is added once it’s over.')));
   tiles.appendChild(box);
 }
 function renderInsights() {
@@ -814,6 +842,11 @@ function renderInsights() {
       var irritant = (kv.teacoffee || 0) + (kv.alcohol || 0);
       if (irritant) io.appendChild(el('div', 'insnote', t('Tea, coffee and alcohol were {p}% of what you drank. Caffeine and alcohol can irritate the bladder.', { p: Math.round(irritant / kindMl * 100) })));
     }
+  }
+  if (!multi && mx) {
+    var midnight = startOfDay(Date.now()), sinceMid = between(s, midnight, Infinity);
+    var mi = sum(sinceMid.filter(function (x) { return x.type === 'drink'; })), mo = sum(sinceMid.filter(function (x) { return x.type === 'pass'; }));
+    io.appendChild(el('div', 'sub', t('Today since midnight: in {a} · out {b}', { a: mi[1] ? fmtVol(mi[0]) : '–', b: mo[1] ? fmtVol(mo[0]) : '–' })));
   }
   if (settings.target && multi && inC) {
     var met = dayIn.filter(function (v) { return v >= settings.target; }).length;
@@ -1024,7 +1057,7 @@ function reportModel(data) {
   var fv = {
     caption: t('Frequency and volume'),
     head: [t('Day'), t('In'), t('Passes (night)'), t('Out'), t('Night out'), t('Largest'), t('Average')].concat(anyLeak ? [t('Leaks')] : []),
-    rows: f.rows.map(function (r) { return fvRow(fmtDate(r.start, { weekday: 'short', day: 'numeric', month: 'short' }), r); }),
+    rows: f.rows.map(function (r) { return fvRow(fmtDate(r.start, { weekday: 'short', day: 'numeric' }), r); }),
     total: f.rows.length > 1 && f.daysKept ? fvRow(t('Per day'), f.average) : null,
     note: fvNote
   };
@@ -1184,7 +1217,8 @@ function syncInert() {
 function openDialog(id) {
   var d = $(id), from = document.activeElement;
   dialogs = dialogs.filter(function (q) { return q.id !== id; });
-  dialogs.push({ id: id, from: from, fromId: from && from.getAttribute && from.getAttribute('data-id') });
+  var layer = from && from.closest ? LAYERS.filter(function (l) { return $(l).contains(from); }).pop() : null;
+  dialogs.push({ id: id, from: from, fromId: from && from.getAttribute && from.getAttribute('data-id'), layer: layer });
   d.hidden = false; syncInert();
   var first = d.querySelector('[data-close]') || d.querySelector('button, input, [tabindex]');
   if (first) first.focus();
@@ -1198,7 +1232,8 @@ function closeDialog(id) {
   if (wasTop) renderRevealed();
   var back = rec.from;
   // Lists re-render while a dialog is open, so find the replacement for a row or dot that opened it.
-  if ((!back || !back.isConnected) && rec.fromId) back = document.querySelector('[data-id="' + CSS.escape(rec.fromId) + '"]');
+  // The same entry can be both a dot in Insights and a row on the main screen, so look where the old one was.
+  if ((!back || !back.isConnected) && rec.fromId) back = (rec.layer ? $(rec.layer) : document).querySelector('[data-id="' + CSS.escape(rec.fromId) + '"]');
   if (back && back.isConnected && back.offsetParent !== null) back.focus();
 }
 function showOverlay(id) { openDialog(id); }
@@ -1375,10 +1410,12 @@ function protectedBackup() {
 }
 function backupError() { backupMsgFlash(t('Couldn’t encrypt the backup in this browser.')); }
 $('copyBackup').addEventListener('click', function () { copyText($('backupPass').value ? protectedBackup() : backupText(), $('backupMsg'), t('Backup copied'), markBackup); });
-$('dlBackup').addEventListener('click', function () {
+function downloadBackup(msgEl) {
   var locked = !!$('backupPass').value;
-  protectedBackup().then(function (t) { saveFile('drink-pass-backup-' + stamp() + (locked ? '-encrypted' : '') + '.json', t, $('backupMsg'), markBackup); }, backupError);
-});
+  protectedBackup().then(function (t) { saveFile('drink-pass-backup-' + stamp() + (locked ? '-encrypted' : '') + '.json', t, msgEl, markBackup); }, backupError);
+}
+$('dlBackup').addEventListener('click', function () { downloadBackup($('backupMsg')); });
+$('dlBackupTop').addEventListener('click', function () { downloadBackup($('backupTopMsg')); });
 $('exportCsv').addEventListener('click', function () { saveFile('drink-pass-all-' + stamp() + '.csv', toCsv(sorted(), isNight), $('exportMsg')); });
 $('exportFhir').addEventListener('click', function () { saveFile('drink-pass-fhir-' + stamp() + '.json', JSON.stringify(toFhirBundle(sorted(), isNight), null, 1), $('exportMsg')); });
 
@@ -1581,7 +1618,7 @@ var langPrefs = navigator.languages && navigator.languages.length ? navigator.la
 function langCode() { return isLang(settings.lang) ? settings.lang : detectLang(langPrefs); }
 function applyLanguage() {
   translatePage(document.body);
-  ['langMsg', 'reportMsg', 'notifyMsg', 'persistMsg', 'backupMsg', 'exportMsg', 'unlockMsg'].forEach(function (id) { $(id).textContent = ''; });
+  ['langMsg', 'reportMsg', 'notifyMsg', 'persistMsg', 'backupMsg', 'backupTopMsg', 'exportMsg', 'unlockMsg'].forEach(function (id) { $(id).textContent = ''; });
   $('whenText').textContent = whenLabel();
   syncSettings(); hideBar(); render();
   if (sheetId) { var se = find(sheetId); if (se) openSheet(se); }
