@@ -117,7 +117,11 @@ test('the header has a Settings button, and Settings opens in groups', async ({ 
   await page.locator('#openSettingsMain').click();
   await expect(page.locator('#settingsSheet')).toBeVisible();
   await expect(page.locator('details.sec > summary')).toHaveText(['Backup and data', 'Logging', 'Insights and summary', 'Reminders and targets', 'Language, units and display', 'About']);
-  await expect(page.locator('#secBackup')).toHaveAttribute('open', '');
+  await expect(page.locator('#secBackup')).not.toHaveAttribute('open', '');
+  await expect(page.locator('#lastBackup')).toHaveText('Not backed up yet.');
+  await expect(page.locator('#dlBackupTop')).toBeVisible();
+  await expect(page.locator('#dlBackup')).toBeHidden();
+  await openSection(page, 'secBackup');
   await expect(page.locator('#dlBackup')).toBeVisible();
   await expect(page.locator('[data-remind="2"]')).toBeHidden();
   await openSection(page, 'secRemind');

@@ -26,6 +26,7 @@ test('restore skips malformed entries and bad settings', async ({ page }) => {
   await page.goto('./');
   await page.locator('#openInsights').click();
   await page.locator('#openSettings').click();
+  await openSection(page, 'secBackup');
   const now = Date.now();
   const backup = { log: [
     { id: 'ok', type: 'pass', t: now - 60000, size: { label: 'small', ml: 'NaN' } },

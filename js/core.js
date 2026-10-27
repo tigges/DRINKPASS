@@ -1,5 +1,5 @@
 // Matches package.json and sw.js; scripts/check-release.mjs enforces it.
-export var APP_VERSION = '1.6.0';
+export var APP_VERSION = '1.6.1';
 export var OZ = 29.5735, H = 3600000, DAY = 86400000, MAX_ML = 5000;
 
 export var VALID_TYPES = ['drink', 'pass', 'solid', 'leak', 'bed', 'wake', 'tablet', 'exercise'];
@@ -187,10 +187,6 @@ export function fvSummary(days, isNight) {
 }
 
 /**
- * Whether to suggest a drink: `hours` since the last drink (or since waking, if later),
- * only while awake, outside night hours, and only for someone actively logging today.
- */
-/**
  * One row per calendar day for the Progress trends. `days` is [{ start, items }]. A value is null when the day has
  * nothing to measure it by; `logged` is false when nothing but sleep was entered, so the day is left out, not zero.
  */
@@ -224,6 +220,10 @@ export function trendEnds(series, key) {
   return n ? { n: n, first: median(v.slice(0, n)), last: median(v.slice(-n)) } : null;
 }
 
+/**
+ * Whether to suggest a drink: `hours` since the last drink (or since waking, if later),
+ * only while awake, outside night hours, and only for someone actively logging today.
+ */
 export function drinkReminder(sorted, now, hours, isNight, asleep) {
   if (!hours || asleep || isNight(now)) return null;
   var lastDrink = null, lastWake = null, lastAny = null;

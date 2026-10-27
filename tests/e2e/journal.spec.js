@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { stored, openSettings, restoreSample, SAMPLE_BACKUP } from './helpers.js';
+import { stored, openSettings, openSection, restoreSample, SAMPLE_BACKUP } from './helpers.js';
 
 test.beforeEach(async ({ page }) => {
   page.on('pageerror', (e) => { throw e; });
@@ -31,6 +31,7 @@ test('undo removes the entry just logged', async ({ page }) => {
 
 test('restore from a backup file previews and adds entries', async ({ page }) => {
   await openSettings(page);
+  await openSection(page, 'secBackup');
   await page.locator('#restoreFile').setInputFiles(SAMPLE_BACKUP);
   await expect(page.locator('#restorePrevText')).toContainText('6 new, 0 already here');
   await page.locator('#restoreGo').click();
