@@ -36,6 +36,9 @@
   <symbol id="i-note" viewBox="0 0 24 24"><path d="M7 3h8l4 4v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M9 12h6M9 16h4"/></symbol>
   <symbol id="i-solid" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></symbol>
   <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M4 12V9a3 3 0 0 1 3-3h11l-3-3M20 12v3a3 3 0 0 1-3 3H6l3 3"/></symbol>
+  <symbol id="i-pill" viewBox="0 0 24 24"><rect x="3" y="8.5" width="18" height="7" rx="3.5" transform="rotate(-40 12 12)"/><path d="M9.7 9.3l4.6 5.4"/></symbol>
+  <symbol id="i-flex" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></symbol>
+  <symbol id="i-leak" viewBox="0 0 24 24"><path d="M9 4c2.4 2.9 4.1 5 4.1 7.3a4.1 4.1 0 0 1-8.2 0C4.9 9 6.6 6.9 9 4z"/><path d="M17 12.5c1.4 1.7 2.4 2.9 2.4 4.2a2.4 2.4 0 0 1-4.8 0c0-1.3 1-2.5 2.4-4.2z"/></symbol>
   <symbol id="f-en" viewBox="0 0 60 30" preserveAspectRatio="xMidYMid slice"><rect width="60" height="30" fill="#012169"/><path d="M0 0L60 30M60 0L0 30" stroke="#fff" stroke-width="6"/><path d="M0 0L60 30M60 0L0 30" stroke="#c8102e" stroke-width="2"/><path d="M30 0V30M0 15H60" stroke="#fff" stroke-width="10"/><path d="M30 0V30M0 15H60" stroke="#c8102e" stroke-width="6"/></symbol>
   <symbol id="f-de" viewBox="0 0 30 20"><rect width="30" height="20" fill="#ffce00"/><rect width="30" height="13.34" fill="#dd0000"/><rect width="30" height="6.67" fill="#000"/></symbol>
   <symbol id="f-fr" viewBox="0 0 30 20"><rect width="30" height="20" fill="#ed2939"/><rect width="20" height="20" fill="#fff"/><rect width="10" height="20" fill="#002395"/></symbol>
@@ -59,6 +62,16 @@
     <span class="acts"><button type="button" id="updateNow">Update</button></span>
   </div>
 
+  <div class="warn nudge" id="updatedBar" role="status" hidden>
+    <span id="updatedText"></span>
+    <span class="acts"><button type="button" id="updatedOk">OK</button></span>
+  </div>
+
+  <div class="warn nudge" id="trainBar" role="status" hidden>
+    <span id="trainText"></span>
+    <span class="acts"><button type="button" id="trainLog">Log a pass</button><button type="button" id="trainLater">Later</button></span>
+  </div>
+
   <div class="warn nudge" id="remindBar" role="status" hidden>
     <span id="remindText"></span>
     <span class="acts"><button type="button" id="remindLog">Log a drink</button><button type="button" id="remindLater">Later</button></span>
@@ -71,18 +84,25 @@
 
   <header class="head">
     <h1 translate="no"><svg class="logo" aria-hidden="true"><use href="#i-logo"/></svg>Drink <span class="amp">&amp;</span> Pass</h1>
-    <span>
+    <span class="hacts">
       <button class="iconbtn" id="sleepBtn" type="button" aria-label="Going to bed"><svg class="ic"><use id="sleepUse" href="#i-moon"/></svg></button>
-      <button class="iconbtn" id="openInsights" type="button" aria-label="Insights and settings"><svg class="ic"><use href="#i-dots"/></svg></button>
+      <button class="iconbtn" id="openInsights" type="button" aria-label="Insights"><svg class="ic"><use href="#i-dots"/></svg></button>
+      <button class="iconbtn" id="openSettingsMain" type="button" aria-label="Settings and backup"><svg class="ic"><use href="#i-sliders"/></svg></button>
     </span>
   </header>
 
+  <div class="sleepcard" id="sleepCard" hidden>
+    <svg class="ic" aria-hidden="true"><use href="#i-moon"/></svg>
+    <span class="sctext"><b id="sleepSince"></b><span id="sleepPasses"></span></span>
+    <button class="btn" id="wakeBtn" type="button">I’m up</button>
+  </div>
+
   <button class="today" id="todayStrip" type="button">
     <span class="sr">Open Insights for the last 24 hours.</span>
-    <span class="tc"><span class="tl">In today</span><b id="tdIn"></b></span>
+    <span class="tc"><span class="tbar" id="tdInBar" hidden><i id="tdInFill"></i></span><span class="tl">In today</span><b id="tdIn"></b></span>
     <span class="tc"><span class="tl">Out today</span><b id="tdOut"></b></span>
     <span class="tc"><span class="tl">Passes today</span><b id="tdPasses"></b></span>
-    <span class="tc"><span class="tl">Since last pass</span><b id="tdSince"></b></span>
+    <span class="tc"><span class="tl" id="tdSinceL">Since last pass</span><span class="tl" id="tdNextL" hidden>Next planned pass</span><b id="tdSince"></b></span>
   </button>
 
   <div class="lathead"><h2>Latest</h2><span id="todayCount"></span></div>
@@ -95,9 +115,19 @@
     </div>
 
     <div class="whenwrap">
-      <button class="pill" id="whenPill" type="button" aria-expanded="false" aria-controls="whenOpts">
-        <svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg><span class="sr">When: </span><span id="whenText">Now</span><svg class="ic chev"><use href="#i-down"/></svg>
-      </button>
+      <div class="pillrow">
+        <button class="pill" id="whenPill" type="button" aria-expanded="false" aria-controls="whenOpts">
+          <svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg><span class="sr">When: </span><span id="whenText">Now</span><svg class="ic chev"><use href="#i-down"/></svg>
+        </button>
+        <span class="pillr">
+          <button class="pill leakpill" id="leakBtn" type="button" aria-label="Log a leak"><svg class="ic" aria-hidden="true"><use href="#i-leak"/></svg>Leak</button>
+          <button class="pill" id="markPill" type="button" aria-expanded="false" aria-controls="markOpts">More<svg class="ic chev"><use href="#i-down"/></svg></button>
+        </span>
+      </div>
+      <div class="whenopts" id="markOpts" role="group" aria-label="Tablet or exercises" hidden>
+        <button class="chip" type="button" data-mark="tablet"><svg class="ic sm" aria-hidden="true"><use href="#i-pill"/></svg>Tablet</button>
+        <button class="chip" type="button" data-mark="exercise"><svg class="ic sm" aria-hidden="true"><use href="#i-flex"/></svg>Pelvic floor exercises</button>
+      </div>
       <div class="whenopts" id="whenOpts" role="group" aria-label="When did it happen?" hidden>
         <button class="chip" type="button" data-when="now" aria-pressed="true">Now</button>
         <button class="chip" type="button" data-when="5" aria-pressed="false">5 min ago</button>
@@ -144,6 +174,11 @@
   <div id="kindSec"><div class="lbl">Type of drink</div><div class="two flush" id="kindBtns"></div></div>
   <div id="urgSec"><div class="lbl">Urgency</div><div class="two flush" id="urgBtns"></div></div>
   <div id="bristolSec"><div class="lbl">Stool type (Bristol scale: 1 hard lumps, 4 smooth, 7 liquid)</div><div class="two flush seven" id="bristolBtns"></div></div>
+  <div id="leakSec">
+    <div class="lbl">How much</div><div class="two flush three" id="amountBtns"></div>
+    <div class="lbl">What set it off</div><div class="two flush" id="causeBtns"></div>
+    <div class="two"><button class="opt" id="padBtn" type="button" aria-pressed="false">Pad changed</button></div>
+  </div>
 
   <div id="noteSec">
     <button class="txt exactlink" id="noteToggle" type="button"><svg class="ic sm"><use href="#i-note"/></svg><span id="noteToggleText">Add a note</span></button>
@@ -156,6 +191,13 @@
   </div>
 
   <button class="txt danger" id="sheetRemove" type="button" hidden>Remove entry</button>
+</div>
+
+<div class="sheet" id="bedSheet" role="dialog" aria-modal="true" aria-labelledby="bedTitle" aria-describedby="bedText" hidden>
+  <div class="grab"></div>
+  <h3 id="bedTitle">Going to bed?</h3>
+  <p class="info" id="bedText">Passes from now until you tap “I’m up” count as night passes.</p>
+  <div class="two"><button class="btn" id="bedCancel" type="button">Not yet</button><button class="btn primary" id="bedGo" type="button">Going to bed</button></div>
 </div>
 
 <div class="overlay" id="logSheet" role="dialog" aria-modal="true" aria-label="All entries" hidden>
@@ -206,6 +248,11 @@
       <button class="chip" type="button" data-days="3" aria-pressed="true">3 days</button>
       <button class="chip" type="button" data-days="7" aria-pressed="false">7 days</button>
     </div>
+    <div class="setrow" role="group" aria-label="Last day of the report">
+      <button class="chip" type="button" data-end="0" aria-pressed="true">Ending today</button>
+      <button class="chip" type="button" data-end="1" aria-pressed="false">Ending yesterday</button>
+    </div>
+    <p class="hint tight" id="reportRange"></p>
     <div id="reportChart"></div>
     <section class="scroll" id="reportFv" aria-label="Frequency and volume" tabindex="0"></section>
     <div class="scroll" id="reportTable"></div>
@@ -223,101 +270,160 @@
 <div class="overlay" id="settingsSheet" role="dialog" aria-modal="true" aria-label="Settings and backup" hidden>
   <div class="inner">
     <div class="oh"><h2>Settings and backup</h2><button class="iconbtn" data-close="settingsSheet" type="button" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button></div>
-    <div class="sech first">Language</div>
-    <div class="setrow flags" role="group" aria-label="Language">
-      <button class="flag" type="button" data-lang="en" lang="en" translate="no" aria-pressed="false" aria-label="English" title="English"><svg aria-hidden="true"><use href="#f-en"/></svg></button>
-      <button class="flag" type="button" data-lang="de" lang="de" translate="no" aria-pressed="false" aria-label="Deutsch" title="Deutsch"><svg aria-hidden="true"><use href="#f-de"/></svg></button>
-      <button class="flag" type="button" data-lang="fr" lang="fr" translate="no" aria-pressed="false" aria-label="Français" title="Français"><svg aria-hidden="true"><use href="#f-fr"/></svg></button>
-      <button class="flag" type="button" data-lang="it" lang="it" translate="no" aria-pressed="false" aria-label="Italiano" title="Italiano"><svg aria-hidden="true"><use href="#f-it"/></svg></button>
-      <button class="flag" type="button" data-lang="nl" lang="nl" translate="no" aria-pressed="false" aria-label="Nederlands" title="Nederlands"><svg aria-hidden="true"><use href="#f-nl"/></svg></button>
-      <button class="flag" type="button" data-lang="zh" lang="zh" translate="no" aria-pressed="false" aria-label="中文" title="中文"><svg aria-hidden="true"><use href="#f-zh"/></svg></button>
-      <button class="flag" type="button" data-lang="es" lang="es" translate="no" aria-pressed="false" aria-label="Español" title="Español"><svg aria-hidden="true"><use href="#f-es"/></svg></button>
-      <button class="flag" type="button" data-lang="pt" lang="pt" translate="no" aria-pressed="false" aria-label="Português" title="Português"><svg aria-hidden="true"><use href="#f-pt"/></svg></button>
-    </div>
-    <p class="hint tight" id="langMsg" aria-live="polite"></p>
-    <div class="sech">Units</div>
-    <div class="setrow" role="group" aria-label="Units">
-      <button class="chip" type="button" data-unit="ml" aria-pressed="true" translate="no">ml</button>
-      <button class="chip" type="button" data-unit="oz" aria-pressed="false" translate="no">fl oz</button>
-    </div>
-    <div class="sech">Clock</div>
-    <div class="setrow" role="group" aria-label="Clock">
-      <button class="chip" type="button" data-clock="24" aria-pressed="true">24-hour</button>
-      <button class="chip" type="button" data-clock="12" aria-pressed="false">12-hour (am/pm)</button>
-    </div>
-    <p class="hint tight">Used for times in the list, chart and clinician summary. Time pickers follow your phone’s own clock setting. Exports always use 24-hour times.</p>
-    <div class="sech">After each log, ask for</div>
-    <div class="setrow" role="group" aria-label="After each log, ask for">
-      <button class="chip" type="button" data-toggle="askSize" aria-pressed="true">Size</button>
-      <button class="chip" type="button" data-toggle="showKind" aria-pressed="false">Drink type</button>
-      <button class="chip" type="button" data-toggle="showUrgency" aria-pressed="false">Urgency</button>
-      <button class="chip" type="button" data-toggle="trackSolid" aria-pressed="false">Solid</button>
-      <button class="chip" type="button" data-toggle="showBristol" aria-pressed="false">Stool type</button>
-    </div>
-    <p class="hint tight">Chosen options appear in the bar after each tap. Solid adds a Water, Solid, Both row after Pass, and Stool type adds the Bristol scale (1 to 7) for solids. Anything switched off stays under More. Notes and Change time are always under More.</p>
-    <div class="sech">Dots on the chart</div>
-    <div class="setrow" role="group" aria-label="Dots on the chart">
-      <button class="chip" type="button" data-dots="same" aria-pressed="true">Same size</button>
-      <button class="chip" type="button" data-dots="amount" aria-pressed="false">By amount</button>
-    </div>
-    <p class="hint tight">By amount makes bigger drinks and passes show as bigger dots. It applies to 24 h, 3 d and 7 d.</p>
-    <div class="sech">Insights</div>
-    <div class="setrow" role="group" aria-label="Insights">
-      <button class="chip" type="button" data-toggle="compare" aria-pressed="false">Compare with previous period</button>
-    </div>
-    <div class="sech">Main screen</div>
-    <div class="setrow" role="group" aria-label="Main screen">
-      <button class="chip" type="button" data-toggle="showToday" aria-pressed="true">Today’s totals</button>
-    </div>
-    <p class="hint tight">Shows what you drank and passed today above the list. Tap the totals to open Insights. On very short screens they’re hidden to keep room for the buttons.</p>
-    <div class="sech">Night hours</div>
-    <div class="setrow"><label for="nightStart">Night starts</label><input class="timein" id="nightStart" type="time" value="22:00"></div>
-    <div class="setrow"><label for="nightEnd">Night ends</label><input class="timein" id="nightEnd" type="time" value="06:00"></div>
-    <p class="hint warn" id="nightMsg" role="status"></p>
-    <p class="hint">Tapping the moon (going to bed) and sun (up for the day) defines your night instead. These hours are the fallback when you haven’t marked sleep.</p>
-    <div class="sech">Drink reminders</div>
-    <div class="setrow" role="group" aria-label="Remind me to drink after">
-      <button class="chip" type="button" data-remind="0" aria-pressed="true">Off</button>
-      <button class="chip" type="button" data-remind="2" aria-pressed="false">After 2 h</button>
-      <button class="chip" type="button" data-remind="3" aria-pressed="false">After 3 h</button>
-      <button class="chip" type="button" data-remind="4" aria-pressed="false">After 4 h</button>
-    </div>
-    <div class="setrow"><button class="chip" type="button" id="remindNotify" aria-pressed="false">Also send a notification</button><span id="notifyMsg" class="hint"></span></div>
-    <p class="hint tight">A gentle prompt when you haven’t had a drink for a while, during the day only. It shows while the app is open or in the background; phones may not deliver it once the app is closed.</p>
-    <div class="sech">Storage</div>
-    <p class="hint lead" id="storeStatus"></p>
-    <div class="setrow"><button class="btn" id="persistBtn" type="button" hidden>Ask the browser to keep my data</button><span id="persistMsg" class="hint"></span></div>
-    <p class="hint tight">Your entries are saved in this browser, with automatic copies kept alongside. Clearing browser data removes both, so save a backup file now and then, for example to iCloud Drive or Files.</p>
-    <details class="auto"><summary>Automatic copies</summary><div id="snapList"></div></details>
 
-    <div class="sech">Backup</div>
-    <p class="hint lead" id="lastBackup"></p>
-    <div class="setrow"><label for="backupPass">Password (optional)</label><input class="timein" id="backupPass" type="password" autocomplete="new-password" placeholder="For an encrypted backup"></div>
-    <p class="hint tight">With a password, the backup file is encrypted and can only be restored with that password. There is no way to recover a forgotten password.</p>
-    <div class="setrow"><button class="btn" id="dlBackup" type="button">Download backup</button><button class="btn" id="copyBackup" type="button">Copy backup</button><span id="backupMsg" class="hint"></span></div>
-    <div class="setrow"><label class="btn filebtn" for="restoreFile">Restore from file</label><input class="vh" id="restoreFile" type="file" accept=".json,application/json,text/plain"></div>
-    <label class="strong" for="restoreBox">Or paste a backup</label>
-    <textarea id="restoreBox" placeholder="Paste a backup here"></textarea>
-    <div class="setrow"><button class="btn" id="restoreBtn" type="button">Check backup</button></div>
-    <div class="panelbox" id="unlockBox" hidden>
-      <label class="strong" for="unlockPass">This backup is password protected</label>
-      <div class="setrow last"><input class="timein" id="unlockPass" type="password" autocomplete="current-password"><button class="btn primary" id="unlockGo" type="button">Unlock</button><button class="btn" id="unlockCancel" type="button">Cancel</button></div>
-      <p class="hint" id="unlockMsg"></p>
-    </div>
-    <div class="panelbox" id="restorePrev" hidden>
-      <div id="restorePrevText"></div>
-      <label class="chk" id="restoreSetRow"><input type="checkbox" id="restoreSettings" checked>Also restore the settings from this backup</label>
-      <div class="setrow last"><button class="btn primary" id="restoreGo" type="button">Add entries</button><button class="btn" id="restoreCancel" type="button">Cancel</button></div>
-    </div>
-    <p class="hint" id="installTip">To install: in Safari tap Share, then Add to Home Screen. In Chrome open the menu and choose Install app. Restore your backup from inside the installed app, because the browser tab and the installed app keep separate storage on iPhone.</p>
-    <div class="sech">Export everything</div>
-    <div class="setrow"><button class="btn" id="exportCsv" type="button">Download all as CSV</button><button class="btn" id="exportFhir" type="button">Download for health records (FHIR)</button><span id="exportMsg" class="hint"></span></div>
-    <p class="hint tight">CSV opens in spreadsheet apps. FHIR is a standard health-data format that some record systems and apps can import. Both include every entry, not just recent days.</p>
-    <div class="sech">Recently removed</div>
-    <div id="trashList"></div>
-    <div class="sech">App version</div>
-    <div class="setrow"><span id="appVersion" class="strong"></span><button class="btn" id="checkUpdate" type="button">Check for updates</button></div>
-    <p class="hint tight" id="updateMsg" role="status"></p>
+    <details class="sec" id="secBackup" open>
+      <summary>Backup and data</summary>
+      <div class="sech first">Storage</div>
+      <p class="hint lead" id="storeStatus"></p>
+      <div class="setrow"><button class="btn" id="persistBtn" type="button" hidden>Ask the browser to keep my data</button><span id="persistMsg" class="hint"></span></div>
+      <p class="hint tight">Your entries are saved in this browser, with automatic copies kept alongside. Clearing browser data removes both, so save a backup file now and then, for example to iCloud Drive or Files.</p>
+      <details class="auto"><summary>Automatic copies</summary><div id="snapList"></div></details>
+
+      <div class="sech">Backup</div>
+      <p class="hint lead" id="lastBackup"></p>
+      <div class="setrow"><label for="backupPass">Password (optional)</label><input class="timein" id="backupPass" type="password" autocomplete="new-password" placeholder="For an encrypted backup"></div>
+      <p class="hint tight">With a password, the backup file is encrypted and can only be restored with that password. There is no way to recover a forgotten password.</p>
+      <div class="setrow"><button class="btn" id="dlBackup" type="button">Download backup</button><button class="btn" id="copyBackup" type="button">Copy backup</button><span id="backupMsg" class="hint"></span></div>
+      <div class="setrow"><label class="btn filebtn" for="restoreFile">Restore from file</label><input class="vh" id="restoreFile" type="file" accept=".json,application/json,text/plain"></div>
+      <label class="strong" for="restoreBox">Or paste a backup</label>
+      <textarea id="restoreBox" placeholder="Paste a backup here"></textarea>
+      <div class="setrow"><button class="btn" id="restoreBtn" type="button">Check backup</button></div>
+      <div class="panelbox" id="unlockBox" hidden>
+        <label class="strong" for="unlockPass">This backup is password protected</label>
+        <div class="setrow last"><input class="timein" id="unlockPass" type="password" autocomplete="current-password"><button class="btn primary" id="unlockGo" type="button">Unlock</button><button class="btn" id="unlockCancel" type="button">Cancel</button></div>
+        <p class="hint" id="unlockMsg"></p>
+      </div>
+      <div class="panelbox" id="restorePrev" hidden>
+        <div id="restorePrevText"></div>
+        <label class="chk" id="restoreSetRow"><input type="checkbox" id="restoreSettings" checked>Also restore the settings from this backup</label>
+        <div class="setrow last"><button class="btn primary" id="restoreGo" type="button">Add entries</button><button class="btn" id="restoreCancel" type="button">Cancel</button></div>
+      </div>
+      <p class="hint" id="installTip">To install: in Safari tap Share, then Add to Home Screen. In Chrome open the menu and choose Install app. Restore your backup from inside the installed app, because the browser tab and the installed app keep separate storage on iPhone.</p>
+      <div class="sech">Export everything</div>
+      <div class="setrow"><button class="btn" id="exportCsv" type="button">Download all as CSV</button><button class="btn" id="exportFhir" type="button">Download for health records (FHIR)</button><span id="exportMsg" class="hint"></span></div>
+      <p class="hint tight">CSV opens in spreadsheet apps. FHIR is a standard health-data format that some record systems and apps can import. Both include every entry, not just recent days.</p>
+      <div class="sech">Recently removed</div>
+      <div id="trashList"></div>
+    </details>
+
+    <details class="sec" id="secLogging">
+      <summary>Logging</summary>
+      <div class="sech first">After each log, ask for</div>
+      <div class="setrow" role="group" aria-label="After each log, ask for">
+        <button class="chip" type="button" data-toggle="askSize" aria-pressed="true">Size</button>
+        <button class="chip" type="button" data-toggle="showKind" aria-pressed="false">Drink type</button>
+        <button class="chip" type="button" data-toggle="showUrgency" aria-pressed="false">Urgency</button>
+        <button class="chip" type="button" data-toggle="trackSolid" aria-pressed="false">Solid</button>
+        <button class="chip" type="button" data-toggle="showBristol" aria-pressed="false">Stool type</button>
+      </div>
+      <p class="hint tight">Chosen options appear in the bar after each tap. Solid adds a Water, Solid, Both row after Pass, and Stool type adds the Bristol scale (1 to 7) for solids. Anything switched off stays under More. Notes and Change time are always under More.</p>
+      <p class="hint tight">New drinks and passes get the size you used last time, or Medium at first. Tap an entry to change it. Hold Drink or Pass to log without the bar’s questions.</p>
+      <div class="sech">Main screen</div>
+      <div class="setrow" role="group" aria-label="Main screen">
+        <button class="chip" type="button" data-toggle="showToday" aria-pressed="true">Today’s totals</button>
+        <button class="chip" type="button" data-toggle="showLeak" aria-pressed="true">Leak button</button>
+        <button class="chip" type="button" data-toggle="showMarks" aria-pressed="true">Tablets and exercises</button>
+      </div>
+      <p class="hint tight">Shows what you drank and passed today above the list. Tap the totals to open Insights. On very short screens they’re hidden to keep room for the buttons.</p>
+      <p class="hint tight">Leak logs a leak, with how much and what set it off. More logs a tablet or pelvic floor exercises; they show as markers on the Progress charts.</p>
+      <div class="sech">Night hours</div>
+      <div class="setrow"><label for="nightStart">Night starts</label><input class="timein" id="nightStart" type="time" value="22:00"></div>
+      <div class="setrow"><label for="nightEnd">Night ends</label><input class="timein" id="nightEnd" type="time" value="06:00"></div>
+      <p class="hint warn" id="nightMsg" role="status"></p>
+      <p class="hint">Tapping the moon (going to bed) and sun (up for the day) defines your night instead. These hours are the fallback when you haven’t marked sleep.</p>
+    </details>
+
+    <details class="sec" id="secInsights">
+      <summary>Insights and summary</summary>
+      <div class="sech first">Dots on the chart</div>
+      <div class="setrow" role="group" aria-label="Dots on the chart">
+        <button class="chip" type="button" data-dots="same" aria-pressed="true">Same size</button>
+        <button class="chip" type="button" data-dots="amount" aria-pressed="false">By amount</button>
+      </div>
+      <p class="hint tight">By amount makes bigger drinks and passes show as bigger dots. It applies to 24 h, 3 d and 7 d.</p>
+      <div class="sech">Insights</div>
+      <div class="setrow" role="group" aria-label="Insights">
+        <button class="chip" type="button" data-toggle="compare" aria-pressed="false">Compare with previous period</button>
+      </div>
+    </details>
+
+    <details class="sec" id="secRemind">
+      <summary>Reminders and targets</summary>
+      <div class="sech first">Daily drinking target</div>
+      <div class="setrow" role="group" aria-label="Daily drinking target">
+        <button class="chip" type="button" data-target="0" aria-pressed="true">Off</button>
+        <button class="chip" type="button" data-target="1500" aria-pressed="false" translate="no">1500 ml</button>
+        <button class="chip" type="button" data-target="2000" aria-pressed="false" translate="no">2000 ml</button>
+        <button class="chip" type="button" data-target="2500" aria-pressed="false" translate="no">2500 ml</button>
+      </div>
+      <p class="hint tight">Shows how close you are under In today, and in drink reminders. Ask your clinician what amount suits you.</p>
+      <div class="sech">Drink reminders</div>
+      <div class="setrow" role="group" aria-label="Remind me to drink after">
+        <button class="chip" type="button" data-remind="0" aria-pressed="true">Off</button>
+        <button class="chip" type="button" data-remind="2" aria-pressed="false">After 2 h</button>
+        <button class="chip" type="button" data-remind="3" aria-pressed="false">After 3 h</button>
+        <button class="chip" type="button" data-remind="4" aria-pressed="false">After 4 h</button>
+      </div>
+      <p class="hint tight">A gentle prompt when you haven’t had a drink for a while, during the day only. It shows while the app is open or in the background; phones may not deliver it once the app is closed.</p>
+      <div class="sech">Bladder training</div>
+      <div class="setrow" role="group" aria-label="Planned passes">
+        <button class="chip" type="button" data-train="0" aria-pressed="true">Off</button>
+        <button class="chip" type="button" data-train="90" aria-pressed="false" translate="no">1 h 30 min</button>
+        <button class="chip" type="button" data-train="120" aria-pressed="false" translate="no">2 h</button>
+        <button class="chip" type="button" data-train="150" aria-pressed="false" translate="no">2 h 30 min</button>
+        <button class="chip" type="button" data-train="180" aria-pressed="false" translate="no">3 h</button>
+      </div>
+      <div class="setrow" role="group" aria-label="Each week">
+        <button class="chip" type="button" data-stretch="0" aria-pressed="true">Keep the same gap</button>
+        <button class="chip" type="button" data-stretch="15" aria-pressed="false">Add 15 min a week</button>
+        <button class="chip" type="button" data-stretch="30" aria-pressed="false">Add 30 min a week</button>
+      </div>
+      <p class="hint tight" id="trainMsg"></p>
+      <p class="hint tight">Planned passes at a set gap after your last pass, during the day only, can help the bladder hold more over time. Only try this if your clinician suggests it.</p>
+      <div class="setrow"><button class="chip" type="button" id="remindNotify" aria-pressed="false">Also send a notification</button><span id="notifyMsg" class="hint"></span></div>
+      <p class="hint tight">Notifications are for drink reminders and planned passes.</p>
+    </details>
+
+    <details class="sec" id="secDisplay">
+      <summary>Language, units and display</summary>
+      <div class="sech first">Language</div>
+      <div class="setrow flags" role="group" aria-label="Language">
+        <button class="flag" type="button" data-lang="en" lang="en" translate="no" aria-pressed="false" aria-label="English" title="English"><svg aria-hidden="true"><use href="#f-en"/></svg></button>
+        <button class="flag" type="button" data-lang="de" lang="de" translate="no" aria-pressed="false" aria-label="Deutsch" title="Deutsch"><svg aria-hidden="true"><use href="#f-de"/></svg></button>
+        <button class="flag" type="button" data-lang="fr" lang="fr" translate="no" aria-pressed="false" aria-label="Français" title="Français"><svg aria-hidden="true"><use href="#f-fr"/></svg></button>
+        <button class="flag" type="button" data-lang="it" lang="it" translate="no" aria-pressed="false" aria-label="Italiano" title="Italiano"><svg aria-hidden="true"><use href="#f-it"/></svg></button>
+        <button class="flag" type="button" data-lang="nl" lang="nl" translate="no" aria-pressed="false" aria-label="Nederlands" title="Nederlands"><svg aria-hidden="true"><use href="#f-nl"/></svg></button>
+        <button class="flag" type="button" data-lang="zh" lang="zh" translate="no" aria-pressed="false" aria-label="中文" title="中文"><svg aria-hidden="true"><use href="#f-zh"/></svg></button>
+        <button class="flag" type="button" data-lang="es" lang="es" translate="no" aria-pressed="false" aria-label="Español" title="Español"><svg aria-hidden="true"><use href="#f-es"/></svg></button>
+        <button class="flag" type="button" data-lang="pt" lang="pt" translate="no" aria-pressed="false" aria-label="Português" title="Português"><svg aria-hidden="true"><use href="#f-pt"/></svg></button>
+      </div>
+      <p class="hint tight" id="langMsg" aria-live="polite"></p>
+      <div class="sech">Units</div>
+      <div class="setrow" role="group" aria-label="Units">
+        <button class="chip" type="button" data-unit="ml" aria-pressed="true" translate="no">ml</button>
+        <button class="chip" type="button" data-unit="oz" aria-pressed="false" translate="no">fl oz</button>
+      </div>
+      <div class="sech">Clock</div>
+      <div class="setrow" role="group" aria-label="Clock">
+        <button class="chip" type="button" data-clock="24" aria-pressed="true">24-hour</button>
+        <button class="chip" type="button" data-clock="12" aria-pressed="false">12-hour (am/pm)</button>
+      </div>
+      <p class="hint tight">Used for times in the list, chart and clinician summary. Time pickers follow your phone’s own clock setting. Exports always use 24-hour times.</p>
+      <div class="sech">Text size</div>
+      <div class="setrow" role="group" aria-label="Text size">
+        <button class="chip" type="button" data-textsize="normal" aria-pressed="true">Standard</button>
+        <button class="chip ts-large" type="button" data-textsize="large" aria-pressed="false">Large</button>
+        <button class="chip ts-xl" type="button" data-textsize="xl" aria-pressed="false">Extra large</button>
+      </div>
+    </details>
+
+    <details class="sec" id="secAbout">
+      <summary>About</summary>
+      <div class="sech first">App version</div>
+      <div class="setrow"><span id="appVersion" class="strong"></span><button class="btn" id="checkUpdate" type="button">Check for updates</button></div>
+      <p class="hint tight" id="updateMsg" role="status"></p>
+      <p class="hint tight">Updates install by themselves when you next open the app. If one is ready while you’re using it, a message offers to update.</p>
+    </details>
     <p class="legal">This journal records what you enter. It isn’t medical advice. Entries stay in this browser on this device.</p>
   </div>
 </div>

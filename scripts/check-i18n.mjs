@@ -15,7 +15,7 @@ export async function collectKeys() {
     for (const m of src.matchAll(new RegExp(String.raw`\btn\([^']*?,\s*` + str + String.raw`,\s*` + str, 'g'))) { keys.add(m[1]); keys.add(m[2]); }
   }
   const core = await import(pathToFileURL(join(root, 'js/core.js')));
-  for (const list of [core.URG, core.KINDS, core.KINDS_SHORT]) for (const [, label] of list) keys.add(label);
+  for (const list of [core.URG, core.KINDS, core.KINDS_SHORT, core.LEAK_AMOUNT, core.LEAK_CAUSE]) for (const [, label] of list) keys.add(label);
   for (const [label] of [...core.PRESETS.drink, ...core.PRESETS.pass]) keys.add(label);
   for (const label of Object.values(core.NAMES)) keys.add(label);
   for (const key of htmlStrings(read('index.html'))) keys.add(key);
